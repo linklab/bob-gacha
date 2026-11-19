@@ -148,6 +148,7 @@ button[aria-disabled="true"] {
 
 .sound-toggle {
   position: absolute;
+  z-index: 2;
   top: var(--space-2);
   right: var(--space-2);
   min-height: 44px;
@@ -235,34 +236,6 @@ button[aria-disabled="true"] {
 
 .loading-message {
   color: var(--muted);
-}
-
-.draw-result {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-}
-
-.draw-result strong {
-  min-width: 0;
-  font-size: clamp(17px, 2vw, 22px);
-  font-weight: 750;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
-  overflow-wrap: anywhere;
-}
-
-.result-label {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.pocket-result {
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
 }
 
 .draw-action,
@@ -376,16 +349,23 @@ button[aria-disabled="true"] {
   font-variant-numeric: tabular-nums;
 }
 
-.pocket-assignments {
+.pocket-assignments,
+.full-winner-name {
   margin-top: var(--space-2);
 }
 
-.pocket-assignments summary {
+.pocket-assignments summary,
+.full-winner-name summary {
   width: fit-content;
   padding: var(--space-3) var(--space-2);
   border-radius: var(--radius-panel);
   color: var(--muted);
   cursor: pointer;
+}
+
+.full-winner-name p {
+  margin: 0 var(--space-2) var(--space-3);
+  overflow-wrap: anywhere;
 }
 
 .pocket-assignments ul {

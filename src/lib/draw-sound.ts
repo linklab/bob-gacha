@@ -1,7 +1,8 @@
-import samples from "./audio/roulette-samples.json";
-import type { DrawImpact, DrawSound } from "../../lib/draw";
+import samples from "../features/roulette/audio/roulette-samples.json";
+import celebrationUrl from "./audio/draw-win.mp3?inline";
+import type { DrawImpact, DrawMode, DrawSound } from "./draw";
 
-const recordingUrl = new URL("./audio/roulette-samples.wav", import.meta.url);
+const recordingUrl = new URL("../features/roulette/audio/roulette-samples.wav", import.meta.url);
 const volume = 0.9;
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 
@@ -15,7 +16,7 @@ function approach(param: AudioParam, value: number, time: number, speed: number)
   param.setTargetAtTime(value, time, speed);
 }
 
-function createMixer(context: AudioContext, recording: AudioBuffer) {
+function createMixer(context: AudioContext) {
   const master = context.createGain();
   const compressor = context.createDynamicsCompressor();
   compressor.threshold.value = -13;
@@ -34,6 +35,7 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
   fretPresence.connect(master);
 
   function voice(
+    buffer: AudioBuffer,
     clip: Clip,
     gain: number,
     pan: number,
@@ -44,7 +46,7 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
     const source = context.createBufferSource();
     const level = context.createGain();
     const position = context.createStereoPanner();
-    source.buffer = recording;
+    source.buffer = buffer;
     source.loop = loop;
     source.playbackRate.value = pitch;
     level.gain.value = gain;
@@ -60,23 +62,34 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
     return { source, level, position };
   }
 
-  const rail = voice(samples.rail, 0, 0, 1, true);
-  const pockets = voice(samples.pockets, 0, 0, 1, true);
   const hits = new Set<ReturnType<typeof voice>>();
+  let tracks: ReturnType<typeof rouletteTracks> | undefined;
+  let celebration: AudioBuffer | undefined;
+  void fetch(celebrationUrl)
+    .then((response) => response.arrayBuffer())
+    .then((bytes) => context.decodeAudioData(bytes))
+    .then((clip) => {
+      celebration = clip;
+    })
+    .catch(() => undefined);
 
-  function play(kind: DrawImpact, take: number, strength: number, pan: number) {
-    const isFret = kind === "fret";
-    const intensity = Math.sqrt(clamp(strength));
-    const gain = isFret ? Math.min(intensity * 1.5, 0.89) : intensity * 0.88;
-    const pitch = 0.97 + strength * 0.07;
-    const hit = voice(
-      samples[kind][take],
-      gain,
-      clamp(pan, -0.68, 0.68),
-      pitch,
-      false,
-      isFret ? fretPresence : master,
-    );
+  function rouletteTracks(recording: AudioBuffer) {
+    return {
+      recording,
+      rail: voice(recording, samples.rail, 0, 0, 1, true),
+      pockets: voice(recording, samples.pockets, 0, 0, 1, true),
+    };
+  }
+
+  function oneShot(
+    buffer: AudioBuffer,
+    clip: Clip,
+    gain: number,
+    pan: number,
+    pitch: number,
+    output: AudioNode = master,
+  ) {
+    const hit = voice(buffer, clip, gain, pan, pitch, false, output);
     hits.add(hit);
     hit.source.onended = () => {
       hits.delete(hit);
@@ -86,9 +99,26 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
     };
   }
 
+  function play(kind: DrawImpact, take: number, strength: number, pan: number) {
+    if (!tracks) return;
+    const isFret = kind === "fret";
+    const intensity = Math.sqrt(clamp(strength));
+    const gain = isFret ? Math.min(intensity * 1.5, 0.89) : intensity * 0.88;
+    const pitch = 0.97 + strength * 0.07;
+    oneShot(
+      tracks.recording,
+      samples[kind][take],
+      gain,
+      clamp(pan, -0.68, 0.68),
+      pitch,
+      isFret ? fretPresence : master,
+    );
+  }
+
   function quietRoll() {
-    approach(rail.level.gain, 0, context.currentTime, 0.023);
-    approach(pockets.level.gain, 0, context.currentTime, 0.023);
+    if (!tracks) return;
+    approach(tracks.rail.level.gain, 0, context.currentTime, 0.023);
+    approach(tracks.pockets.level.gain, 0, context.currentTime, 0.023);
   }
 
   return {
@@ -96,12 +126,24 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
     master,
     play,
     quietRoll,
+    get hasRecording() {
+      return tracks !== undefined;
+    },
+    loadRecording(recording: AudioBuffer) {
+      tracks = rouletteTracks(recording);
+    },
+    celebrate() {
+      if (!celebration) return 0;
+      oneShot(celebration, { start: 0, duration: celebration.duration }, 0.96, 0, 1);
+      return celebration.duration;
+    },
     roll(speed: number, pan: number, onRail: boolean) {
+      if (!tracks) return;
       const time = context.currentTime;
       const power = clamp(speed / (onRail ? 29 : 8));
       const strength = Math.sqrt(power) * clamp((speed - 0.18) / 0.9);
-      const track = onRail ? rail : pockets;
-      const other = onRail ? pockets : rail;
+      const track = onRail ? tracks.rail : tracks.pockets;
+      const other = onRail ? tracks.pockets : tracks.rail;
       approach(track.level.gain, strength * (onRail ? 0.79 : 0.44), time, 0.022);
       approach(other.level.gain, 0, time, 0.025);
       approach(track.source.playbackRate, 0.83 + power * 0.31, time, 0.043);
@@ -118,7 +160,7 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
   };
 }
 
-export function createRouletteSound(initiallyEnabled: boolean) {
+export function createDrawSound(mode: DrawMode, initiallyEnabled: boolean) {
   const request = new AbortController();
   const contacts = new Map<DrawImpact, { time: number; take: number }>();
   let enabled = initiallyEnabled;
@@ -127,6 +169,7 @@ export function createRouletteSound(initiallyEnabled: boolean) {
   let context: AudioContext | undefined;
   let mixer: ReturnType<typeof createMixer> | undefined;
   let recording: Promise<ArrayBuffer | undefined> | undefined;
+  let loadingRecording = false;
   let suspendTimer: ReturnType<typeof setTimeout> | undefined;
   let lastRoll = -Infinity;
 
@@ -143,7 +186,9 @@ export function createRouletteSound(initiallyEnabled: boolean) {
     return recording;
   }
 
-  if (enabled && typeof AudioContext !== "undefined") void preload();
+  if (mode === "roulette" && enabled && typeof AudioContext !== "undefined") {
+    void preload();
+  }
 
   function close() {
     clearTimeout(suspendTimer);
@@ -168,49 +213,46 @@ export function createRouletteSound(initiallyEnabled: boolean) {
     }
   }
 
-  function resume(current: AudioContext) {
-    void current.resume().catch(() => undefined);
+  async function loadRoulette(current: AudioContext) {
+    loadingRecording = true;
+    try {
+      const bytes = await preload();
+      if (context !== current || !bytes) return;
+      const decoded = await current.decodeAudioData(bytes);
+      if (context === current) mixer?.loadRecording(decoded);
+    } catch {
+      if (context === current) disableAudio();
+    } finally {
+      loadingRecording = false;
+    }
   }
 
   function activate() {
     if (!enabled || unavailable || typeof AudioContext === "undefined") return;
     clearTimeout(suspendTimer);
     try {
-      if (context) {
-        resume(context);
-        return;
-      }
-      const current = new AudioContext();
-      context = current;
+      const current = (context ??= new AudioContext());
       // Resume in the gesture handler even when the recording still needs decoding.
-      resume(current);
-      void preload()
-        .then(async (bytes) => {
-          if (context !== current) return;
-          if (!bytes) {
-            close();
-            return;
-          }
-          const decoded = await current.decodeAudioData(bytes);
-          if (context !== current) return;
-          mixer = createMixer(current, decoded);
-          mixer.master.gain.value = enabled ? volume : 0;
-        })
-        .catch(() => {
-          if (context === current) disableAudio();
-        });
+      void current.resume().catch(() => undefined);
+      mixer ??= createMixer(current);
+      if (mode === "roulette" && !mixer.hasRecording && !loadingRecording) {
+        void loadRoulette(current);
+      }
     } catch {
       disableAudio();
     }
   }
 
-  function suspendAfterFade() {
+  function suspendAfterFade(tailSeconds = 0) {
     const current = context;
     if (!current) return;
     clearTimeout(suspendTimer);
-    suspendTimer = setTimeout(() => {
-      void current.suspend().catch(() => undefined);
-    }, 150);
+    suspendTimer = setTimeout(
+      () => {
+        void current.suspend().catch(() => undefined);
+      },
+      tailSeconds * 1000 + 150,
+    );
   }
 
   function stop() {
@@ -222,7 +264,12 @@ export function createRouletteSound(initiallyEnabled: boolean) {
   }
 
   const signals: DrawSound = {
-    audible: () => playing && enabled && !document.hidden && mixer?.context.state === "running",
+    audible: () =>
+      playing &&
+      enabled &&
+      !document.hidden &&
+      mixer?.hasRecording === true &&
+      mixer.context.state === "running",
     roll(speed, pan, onRail) {
       if (!mixer || !signals.audible()) return;
       const time = mixer.context.currentTime;
@@ -250,9 +297,14 @@ export function createRouletteSound(initiallyEnabled: boolean) {
       if (!document.hidden) activate();
     },
     finish() {
+      const celebrate = playing && enabled && !document.hidden && context?.state === "running";
       playing = false;
-      withMixer((current) => current.quietRoll());
-      suspendAfterFade();
+      let tail = 0;
+      withMixer((current) => {
+        current.quietRoll();
+        if (celebrate) tail = current.celebrate();
+      });
+      suspendAfterFade(tail);
     },
     stop,
     quiet() {

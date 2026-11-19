@@ -17,7 +17,7 @@ import {
   WebGLRenderer,
 } from "three";
 
-import { createRouletteSound } from "../features/roulette/sound";
+import { createDrawSound } from "./draw-sound";
 import type { Candidate, CreateDrawScene, DrawMode, DrawResult, DrawScene } from "./draw";
 
 const timeStep = 1 / 120;
@@ -67,9 +67,9 @@ export function createDrawPlayer(
   createScene: CreateDrawScene,
   candidates: readonly Candidate[],
   events: PlayerEvents,
-  soundEnabled?: boolean,
+  mode: DrawMode,
+  soundEnabled: boolean,
 ): DrawPlayer {
-  const sound = soundEnabled === undefined ? undefined : createRouletteSound(soundEnabled);
   const renderer = new WebGLRenderer({ alpha: true, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.toneMapping = ACESFilmicToneMapping;
@@ -77,6 +77,7 @@ export function createDrawPlayer(
   renderer.shadowMap.type = PCFShadowMap;
   renderer.domElement.setAttribute("aria-hidden", "true");
   host.append(renderer.domElement);
+  const sound = createDrawSound(mode, soundEnabled);
 
   let round: Round | undefined;
   let animationFrame: number | undefined;
@@ -92,10 +93,10 @@ export function createDrawPlayer(
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const observer = new ResizeObserver(() => draw());
   renderer.domElement.addEventListener("webglcontextlost", handleContextLoss);
-  if (sound) document.addEventListener("visibilitychange", quietWhenHidden);
+  document.addEventListener("visibilitychange", quietWhenHidden);
 
   function quietWhenHidden() {
-    if (document.hidden) sound?.quiet();
+    if (document.hidden) sound.quiet();
   }
 
   function draw() {
@@ -137,16 +138,16 @@ export function createDrawPlayer(
       if (!reducedMotion.matches || result || elapsed >= maxDuration) draw();
       setSpinnerAvailability(!result && elapsed < maxDuration && canReverseSpinner());
       if (result) {
-        sound?.finish();
+        sound.finish();
         events.onResult(result);
       } else if (elapsed >= maxDuration) {
-        sound?.stop();
+        sound.stop();
         events.onTimeout();
       } else {
         animationFrame = requestAnimationFrame(tick);
       }
     } catch {
-      sound?.stop();
+      sound.stop();
       setSpinnerAvailability(false);
       events.onError();
     }
@@ -156,7 +157,7 @@ export function createDrawPlayer(
     if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
     animationFrame = undefined;
     started = false;
-    sound?.stop();
+    sound.stop();
     setSpinnerAvailability(false);
     if (!round) return;
     round.simulation.world.free();
@@ -185,7 +186,7 @@ export function createDrawPlayer(
       camera,
       candidates: entries,
       random: Math.random,
-      sound: sound?.signals,
+      sound: sound.signals,
     });
     simulation.world.timestep = timeStep;
     simulation.resize?.(aspect);
@@ -197,7 +198,7 @@ export function createDrawPlayer(
     observer.disconnect();
     releaseRound();
     document.removeEventListener("visibilitychange", quietWhenHidden);
-    sound?.dispose();
+    sound.dispose();
     renderer.domElement.removeEventListener("webglcontextlost", handleContextLoss);
     renderer.dispose();
     renderer.forceContextLoss();
@@ -207,7 +208,7 @@ export function createDrawPlayer(
   function handleContextLoss() {
     observer.disconnect();
     releaseRound();
-    sound?.dispose();
+    sound.dispose();
     events.onContextLost();
   }
 
@@ -227,7 +228,7 @@ export function createDrawPlayer(
       animationFrame = undefined;
       started = true;
       round.simulation.start(spin);
-      sound?.start();
+      sound.start();
       setSpinnerAvailability(canReverseSpinner());
       previousTime = performance.now();
       pending = 0;
@@ -264,7 +265,7 @@ export function createDrawPlayer(
       return reversed;
     },
     setSoundEnabled(enabled) {
-      sound?.setEnabled(enabled);
+      sound.setEnabled(enabled);
     },
     reset,
     dispose,

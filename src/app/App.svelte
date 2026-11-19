@@ -4,6 +4,7 @@
 
   import type { Candidate, DrawMode, DrawResult, DrawScene } from "../lib/draw";
   import type { DrawPlayer } from "../lib/draw-player";
+  import DrawCelebration from "./DrawCelebration.svelte";
   import "./app.css";
 
   const modes = {
@@ -25,7 +26,8 @@
   const previewLimit = 3;
   const swipeRadius = 1.6;
   const fullSpeed = 4.8;
-  const soundPreference = "bob-gacha:roulette-sound";
+  const soundPreference = "bob-gacha:draw-sound";
+  const previousSoundPreference = "bob-gacha:roulette-sound";
 
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
 
@@ -121,7 +123,7 @@
         onSpinnerAvailabilityChange(available) {
           spinnerAvailable = available;
         },
-      }, next === "roulette" ? soundEnabled : undefined);
+      }, next, soundEnabled);
       phase = "ready";
     } catch {
       if (version !== loadVersion) return;
@@ -301,7 +303,8 @@
 
   onMount(() => {
     try {
-      soundEnabled = localStorage.getItem(soundPreference) !== "off";
+      soundEnabled =
+        (localStorage.getItem(soundPreference) ?? localStorage.getItem(previousSoundPreference)) !== "off";
     } catch {
       // Storage is optional for playback.
     }
@@ -346,16 +349,19 @@
       onpointerdown={startWheelDrag}
     >
       <div class="scene-canvas" bind:this={viewport}></div>
-      {#if mode === "roulette"}
-        <button
-          class="sound-toggle"
-          type="button"
-          aria-label="룰렛 소리"
-          aria-pressed={soundEnabled}
-          onpointerdown={(event) => event.stopPropagation()}
-          onclick={toggleSound}
-        >{soundEnabled ? "소리 켬" : "소리 끔"}</button>
-      {/if}
+      <div aria-live="polite" aria-atomic="true">
+        {#if result}
+          <DrawCelebration {result} />
+        {/if}
+      </div>
+      <button
+        class="sound-toggle"
+        type="button"
+        aria-label={mode === "roulette" ? "룰렛 소리" : "구슬 경주 소리"}
+        aria-pressed={soundEnabled}
+        onpointerdown={(event) => event.stopPropagation()}
+        onclick={toggleSound}
+      >{soundEnabled ? "소리 켬" : "소리 끔"}</button>
       {#if canDragWheel && !draggingWheel}
         <span class="wheel-hint">휠을 끌었다 놓아 돌리기</span>
       {/if}
@@ -382,15 +388,7 @@
       </div>
 
       <div class="round-feedback" aria-live="polite" aria-atomic="true">
-        {#if result}
-          <div class="draw-result" data-testid="draw-result">
-            <strong>{result.candidate.name}</strong>
-            <span class="result-label">당첨</span>
-            <span class="pocket-result">
-              {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
-            </span>
-          </div>
-        {:else if message}
+        {#if message}
           <p class="error-message">{message}</p>
         {:else if phase === "loading"}
           <p class="loading-message">장면 불러오는 중</p>
@@ -404,6 +402,13 @@
         onclick={handleControl}
       >{action}</button>
     </div>
+
+    {#if result && result.candidate.name.length > 26}
+      <details class="full-winner-name">
+        <summary>당첨 이름 전체 보기</summary>
+        <p>{result.candidate.name}</p>
+      </details>
+    {/if}
 
     {#if mode === "race"}
       <ul class="race-entrants" aria-label="구슬 번호와 후보">

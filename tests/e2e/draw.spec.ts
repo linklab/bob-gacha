@@ -25,6 +25,16 @@ async function dropWheelCapture(wheel: Locator) {
 
 test("runs both 3D draws with the entered candidates", async ({ page }) => {
   test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    let celebrations = 0;
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (when, offset, duration) {
+      start.call(this, when, offset, duration);
+      if (!this.loop && duration && duration > 0.5) {
+        document.documentElement.setAttribute("data-celebrations", String(++celebrations));
+      }
+    };
+  });
   const names = ["김밥", "비빔밥", "우동", "카레"];
   const pageErrors: string[] = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -60,7 +70,12 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect(result.locator("strong")).toHaveText(/^(김밥|비빔밥|우동|카레)$/, {
     timeout: 40_000,
   });
+  await expect(page.locator(".scene-view").getByTestId("draw-result")).toBeVisible();
+  await expect
+    .poll(() => result.evaluate((element) => element.getAnimations({ subtree: true }).length))
+    .toBeGreaterThan(0);
   await expect(result.locator(".pocket-result")).toHaveText(/\d+번 포켓/);
+  await expect(page.locator("html")).toHaveAttribute("data-celebrations", "1");
   expect(await again.evaluate((element, initial) => element === initial, actionElement)).toBe(true);
   const winner = await result.locator("strong").innerText();
   const pocket = (await result.locator(".pocket-result").innerText()).match(/\d+/)?.[0];
@@ -83,15 +98,18 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await apply.click();
   await expect(result).toHaveText(finishedResult);
 
-  const raceNames = ["김밥", "라멘", "우동", "카레"];
+  const raceNames = ["김밥", "라멘", "우동", "카레"].map(
+    (name) => `${name} ${"아주긴후보이름".repeat(20)}`,
+  );
   await edit.click();
   await draft.fill(raceNames.join("\n"));
   await apply.click();
-  await expect(summary).toHaveText("김밥 · 라멘 · 우동 외 1개");
+  await expect(summary).toHaveText(`${raceNames.slice(0, 3).join(" · ")} 외 1개`);
   await expect(start).toBeEnabled();
   await expect(result).toHaveCount(0);
   await expect(assignments).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 320, height: 410 });
   await page.getByRole("button", { name: "구슬 경주", exact: true }).click();
   await expect(entrantList.locator(".entrant-name")).toHaveText(raceNames);
   const startRace = page.getByRole("button", { name: "경주 시작", exact: true });
@@ -101,9 +119,18 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await reverse.click();
   await expect(page.getByRole("button", { name: "회전 바 뒤집음", exact: true })).toBeDisabled();
   await expect(page.getByText("구슬이 달리고 있습니다", { exact: true })).toHaveCount(0);
-  await expect(result.locator("strong")).toHaveText(/^(김밥|라멘|우동|카레)$/, { timeout: 40_000 });
+  await expect(result.locator("strong")).toBeVisible({ timeout: 40_000 });
+  await expect(page.locator(".scene-view").getByTestId("draw-result")).toBeVisible();
+  expect(await result.evaluate((element) => element.getAnimations({ subtree: true }).length)).toBe(
+    0,
+  );
   await expect(result.locator(".pocket-result")).toHaveText(/\d+번 구슬/);
+  await expect(result.locator(".pocket-result")).toBeInViewport();
+  await expect(page.locator("html")).toHaveAttribute("data-celebrations", "2");
   const raceWinner = await result.locator("strong").innerText();
+  expect(raceNames).toContain(raceWinner);
+  await page.getByText("당첨 이름 전체 보기", { exact: true }).click();
+  await expect(page.locator(".full-winner-name p")).toHaveText(raceWinner);
   const marble = (await result.locator(".pocket-result").innerText()).match(/\d+/)?.[0];
   const entrant = entrantList.locator("li.winner");
   await expect(entrant.locator(".entrant-name")).toHaveText(raceWinner);
@@ -212,7 +239,9 @@ test.describe("mobile roulette", () => {
   });
 });
 
-test("plays short roulette contacts during a spin and remembers mute", async ({ page }) => {
+test("plays roulette contacts, celebrates the result once, and remembers mute", async ({
+  page,
+}) => {
   test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => {
@@ -271,9 +300,13 @@ test("plays short roulette contacts during a spin and remembers mute", async ({ 
   await expect.poll(audioState).toBe("running");
   expect((await sounds()).map(({ loop }) => loop)).toEqual([true, true]);
   await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 40_000 });
-  const contacts = (await sounds()).filter(({ loop }) => !loop);
+  const oneShots = (await sounds()).filter(({ loop }) => !loop);
+  const contacts = oneShots.slice(0, -1);
   expect(contacts.length).toBeGreaterThan(3);
   expect(Math.max(...contacts.map(({ seconds }) => seconds))).toBeLessThan(0.1);
+  const celebration = oneShots[oneShots.length - 1];
+  expect(celebration?.seconds).toBeGreaterThan(0.5);
+  expect(celebration?.seconds).toBeLessThan(2);
   await expect.poll(audioState).toBe("suspended");
   await page.getByRole("button", { name: "다시 뽑기", exact: true }).click();
   await expect.poll(audioState).toBe("running");
@@ -283,6 +316,10 @@ test("plays short roulette contacts during a spin and remembers mute", async ({ 
   await stop.click();
   await page.getByRole("button", { name: "구슬 경주", exact: true }).click();
   await expect(sound).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "구슬 경주 소리", exact: true })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 });
 
 test("retries a failed roulette recording download on play", async ({ page }) => {
