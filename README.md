@@ -1,1 +1,21 @@
-# bob-gacha
+# Bob Gacha
+
+물리 시뮬레이션을 이용한 뽑기 웹앱입니다.
+
+## 설치
+
+[mise](https://mise.jdx.dev/installing-mise.html)를 설치한 뒤 저장소 루트에서 실행합니다.
+
+```sh
+mise trust
+mise install
+mise exec -- pnpm install --frozen-lockfile
+```
+
+## 로컬 실행
+
+```sh
+mise exec -- pnpm dev
+```
+
+[http://localhost:5173/bob-gacha/](http://localhost:5173/bob-gacha/)에서 엽니다.
