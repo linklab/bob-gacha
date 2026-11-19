@@ -212,6 +212,121 @@ test.describe("mobile roulette", () => {
   });
 });
 
+test("plays short roulette contacts during a spin and remembers mute", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => {
+    const sounds: { loop: boolean; seconds: number }[] = [];
+    let context: BaseAudioContext | undefined;
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (when, offset, duration) {
+      start.call(this, when, offset, duration);
+      context = this.context;
+      sounds.push({
+        loop: this.loop,
+        seconds: (duration ?? this.buffer?.duration ?? 0) / this.playbackRate.value,
+      });
+    };
+    Object.defineProperty(window, "observedRouletteSounds", { value: sounds });
+    Object.defineProperty(window, "rouletteAudioState", { get: () => context?.state });
+  });
+  const sounds = () =>
+    page.evaluate(
+      () =>
+        (
+          window as Window & {
+            observedRouletteSounds?: { loop: boolean; seconds: number }[];
+          }
+        ).observedRouletteSounds ?? [],
+    );
+  const sound = page.getByRole("button", { name: "룰렛 소리", exact: true });
+  const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
+  const stop = page.getByRole("button", { name: "중지", exact: true });
+  const audioState = () =>
+    page.evaluate(
+      () => (window as Window & { rouletteAudioState?: AudioContextState }).rouletteAudioState,
+    );
+
+  const recording = page.waitForResponse(
+    (response) =>
+      /\/roulette-samples[^/]*\.wav$/.test(new URL(response.url()).pathname) && response.ok(),
+  );
+  await page.goto("./");
+  await recording;
+  await expect(start).toBeEnabled();
+  await expect(sound).toHaveAttribute("aria-pressed", "true");
+  expect(await sounds()).toEqual([]);
+  await sound.click();
+  await page.reload();
+  await expect(sound).toHaveAttribute("aria-pressed", "false");
+  await start.click();
+  await expect(stop).toBeEnabled();
+  expect(await sounds()).toEqual([]);
+  await stop.click();
+
+  await sound.click();
+  await expect(sound).toHaveAttribute("aria-pressed", "true");
+  await start.click();
+  await expect(stop).toBeEnabled();
+  await expect.poll(audioState).toBe("running");
+  expect((await sounds()).map(({ loop }) => loop)).toEqual([true, true]);
+  await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 40_000 });
+  const contacts = (await sounds()).filter(({ loop }) => !loop);
+  expect(contacts.length).toBeGreaterThan(3);
+  expect(Math.max(...contacts.map(({ seconds }) => seconds))).toBeLessThan(0.1);
+  await expect.poll(audioState).toBe("suspended");
+  await page.getByRole("button", { name: "다시 뽑기", exact: true }).click();
+  await expect.poll(audioState).toBe("running");
+  await sound.click();
+  await expect(sound).toHaveAttribute("aria-pressed", "false");
+  await expect.poll(audioState).toBe("suspended");
+  await stop.click();
+  await page.getByRole("button", { name: "구슬 경주", exact: true }).click();
+  await expect(sound).toHaveCount(0);
+});
+
+test("retries a failed roulette recording download on play", async ({ page }) => {
+  const recording = /\/roulette-samples[^/]*\.wav$/;
+  await page.route(recording, (route) => route.abort(), { times: 1 });
+  const failed = page.waitForEvent("requestfailed", (request) => recording.test(request.url()));
+  await page.goto("./");
+  await failed;
+
+  const loaded = page.waitForResponse(
+    (response) => recording.test(response.url()) && response.ok(),
+    {
+      timeout: 5_000,
+    },
+  );
+  await page.getByRole("button", { name: "룰렛 돌리기", exact: true }).click();
+  await loaded;
+  await expect(page.getByRole("button", { name: "중지", exact: true })).toBeEnabled();
+});
+
+test("keeps the draw running when the sound device fails", async ({ page }) => {
+  await page.addInitScript(() => {
+    const start = AudioBufferSourceNode.prototype.start;
+    AudioBufferSourceNode.prototype.start = function (when, offset, duration) {
+      if (this.loop) throw new DOMException("Audio device unavailable", "InvalidStateError");
+      start.call(this, when, offset, duration);
+    };
+    const close = AudioContext.prototype.close;
+    AudioContext.prototype.close = function () {
+      document.documentElement.setAttribute("data-audio-device-closed", "");
+      return close.call(this);
+    };
+  });
+  await page.goto("./");
+  const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(page.locator("html")).toHaveAttribute("data-audio-device-closed", "");
+  const stop = page.getByRole("button", { name: "중지", exact: true });
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(start).toBeEnabled();
+});
+
 test("validates candidate drafts and discards unconfirmed changes", async ({ page }) => {
   await page.goto("./");
   const initialNames = ["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"];

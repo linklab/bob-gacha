@@ -14,12 +14,21 @@ export interface DrawResult {
   pocket?: number;
 }
 
+export type DrawImpact = "bumper" | "fret" | "bowl" | "cone";
+
+export interface DrawSound {
+  audible(): boolean;
+  roll(speed: number, pan: number, onRail: boolean): void;
+  impact(kind: DrawImpact, strength: number, pan: number): void;
+}
+
 export interface DrawSceneContext {
   rapier: typeof RAPIER;
   scene: Scene;
   camera: PerspectiveCamera;
   candidates: readonly Candidate[];
   random: () => number;
+  sound?: DrawSound;
 }
 
 export interface DrawScene {

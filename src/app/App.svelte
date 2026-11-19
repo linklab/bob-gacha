@@ -25,6 +25,7 @@
   const previewLimit = 3;
   const swipeRadius = 1.6;
   const fullSpeed = 4.8;
+  const soundPreference = "bob-gacha:roulette-sound";
 
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
 
@@ -50,6 +51,7 @@
   let spinnerAvailable = $state(false);
   let spinnerUsed = $state(false);
   let draggingWheel = $state(false);
+  let soundEnabled = $state(true);
   let viewport = $state<HTMLDivElement>();
   let editor = $state<HTMLDialogElement>();
 
@@ -119,7 +121,7 @@
         onSpinnerAvailabilityChange(available) {
           spinnerAvailable = available;
         },
-      });
+      }, next === "roulette" ? soundEnabled : undefined);
       phase = "ready";
     } catch {
       if (version !== loadVersion) return;
@@ -158,6 +160,16 @@
       return;
     }
     startRound();
+  }
+
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+    player?.setSoundEnabled(soundEnabled);
+    try {
+      localStorage.setItem(soundPreference, soundEnabled ? "on" : "off");
+    } catch {
+      // The current session still works if the browser blocks storage.
+    }
   }
 
   function startRound(spin?: number) {
@@ -288,6 +300,11 @@
   }
 
   onMount(() => {
+    try {
+      soundEnabled = localStorage.getItem(soundPreference) !== "off";
+    } catch {
+      // Storage is optional for playback.
+    }
     void showMode(mode);
     return () => {
       loadVersion++;
@@ -329,6 +346,16 @@
       onpointerdown={startWheelDrag}
     >
       <div class="scene-canvas" bind:this={viewport}></div>
+      {#if mode === "roulette"}
+        <button
+          class="sound-toggle"
+          type="button"
+          aria-label="룰렛 소리"
+          aria-pressed={soundEnabled}
+          onpointerdown={(event) => event.stopPropagation()}
+          onclick={toggleSound}
+        >{soundEnabled ? "소리 켬" : "소리 끔"}</button>
+      {/if}
       {#if canDragWheel && !draggingWheel}
         <span class="wheel-hint">휠을 끌었다 놓아 돌리기</span>
       {/if}

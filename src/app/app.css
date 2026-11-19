@@ -146,6 +146,24 @@ button[aria-disabled="true"] {
   cursor: grabbing;
 }
 
+.sound-toggle {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  min-height: 44px;
+  padding-inline: var(--space-3);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: rgb(0 0 0 / 72%);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.sound-toggle[aria-pressed="false"] {
+  color: var(--muted);
+}
+
 .wheel-hint {
   position: absolute;
   inset: auto 0 var(--space-2);
@@ -278,6 +296,10 @@ button[aria-disabled="true"] {
 @media (hover: hover) {
   .mode-nav button[aria-pressed="false"]:hover:enabled {
     background: rgb(255 255 255 / 20%);
+  }
+
+  .sound-toggle:hover {
+    background: var(--surface-hover);
   }
 
   .button-primary:hover:enabled {

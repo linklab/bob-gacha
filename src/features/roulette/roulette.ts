@@ -1,6 +1,6 @@
 import { MathUtils, Quaternion, Vector3 } from "three";
 import type { BufferGeometry } from "three";
-import type { Candidate, CreateDrawScene } from "../../lib/draw";
+import type { Candidate, CreateDrawScene, DrawImpact } from "../../lib/draw";
 import {
   ballRadius,
   createWheel,
@@ -56,6 +56,7 @@ export const createRouletteScene: CreateDrawScene = ({
   camera,
   candidates,
   random,
+  sound,
 }) => {
   const { ball, rotor, highlightPocket } = createWheel(scene);
   const world = new rapier.World({ x: 0, y: -36, z: 0 });
@@ -76,7 +77,7 @@ export const createRouletteScene: CreateDrawScene = ({
     return descriptor;
   }
 
-  world.createCollider(
+  const bank = world.createCollider(
     makeSurface(radialSurface(trackProfile), 0.003)
       .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
       .setRestitution(0)
@@ -89,7 +90,7 @@ export const createRouletteScene: CreateDrawScene = ({
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
     axle,
   );
-  world.createCollider(
+  const crown = world.createCollider(
     makeSurface(radialSurface(crownProfile), 0.05)
       .setRestitution(0.07)
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
@@ -142,6 +143,7 @@ export const createRouletteScene: CreateDrawScene = ({
   let railSpeed = 0;
   let touchedPocket = false;
   let pocketMotion = 0;
+  let lastSoundPocket: number | undefined;
   let incomingVerticalSpeed = 0;
   let onRotor = false;
   let settlingPocket = -1;
@@ -249,6 +251,78 @@ export const createRouletteScene: CreateDrawScene = ({
     return touching;
   }
 
+  function observeSound(
+    rollingSpeed: number,
+    radius: number,
+    pocket: number,
+    pan: number,
+    firstPocketTouch: boolean,
+  ) {
+    if (!sound?.audible()) {
+      lastSoundPocket = undefined;
+      return;
+    }
+    if (onRail) {
+      sound.roll(Math.abs(railSpeed) * launchRadius, pan, true);
+      return;
+    }
+
+    const velocity = body.linvel();
+    const mass = body.mass();
+    const rebound = incomingVerticalSpeed < -0.35 ? velocity.y - incomingVerticalSpeed : 0;
+    let supported = false;
+    let onMovingSurface = false;
+    let onPocketFloor = false;
+    let strongest = 0.49;
+    let impact: DrawImpact | undefined;
+    world.contactPairsWith(ballCollider, (surface) => {
+      const onBank = surface.handle === bank.handle;
+      const onFloor = surface.handle === rotorFloor.handle;
+      const onCrown = surface.handle === crown.handle;
+      const kind = onCrown ? "cone" : onFloor || onBank ? "bowl" : "bumper";
+      world.contactPair(ballCollider, surface, (manifold, flipped) => {
+        for (let i = 0; i < manifold.numContacts(); i++) {
+          const close = manifold.contactDist(i) <= 0.004;
+          supported ||= close && (onBank || onFloor || onCrown);
+          onMovingSurface ||= close && (onFloor || onCrown);
+          onPocketFloor ||= close && onFloor;
+          const kick = Math.max(
+            manifold.contactImpulse(i) / mass,
+            close && (onFloor || onBank) ? rebound : 0,
+          );
+          if (kick <= strongest) continue;
+          strongest = kick;
+          impact = kind;
+          if (!onFloor) continue;
+          const point = flipped ? manifold.localContactPoint1(i) : manifold.localContactPoint2(i);
+          if (!point) continue;
+          const contactRadius = Math.hypot(point.x, point.z);
+          if (contactRadius <= pocketInner || contactRadius >= pocketOuter) continue;
+          const base =
+            pocketFloor +
+            (pocketRise * (contactRadius - pocketInner)) / (pocketOuter - pocketInner);
+          if (point.y > base + 0.004) impact = "fret";
+        }
+      });
+    });
+    const speed = onMovingSurface ? rollingSpeed : Math.hypot(velocity.x, velocity.z);
+    sound.roll(supported ? speed : 0, pan, radius > trackProfile[0][0]);
+    const inPockets = radius > pocketInner && radius < pocketOuter;
+    const crossedFret =
+      inPockets &&
+      onPocketFloor &&
+      lastSoundPocket !== undefined &&
+      lastSoundPocket !== pocket &&
+      rollingSpeed > 0.55;
+    lastSoundPocket = inPockets ? pocket : undefined;
+    if (!firstPocketTouch && crossedFret && impact !== "fret") {
+      sound.impact("fret", MathUtils.clamp(rollingSpeed / 14, 0.06, 0.56), pan);
+    } else if (impact || firstPocketTouch) {
+      const kick = Math.max(strongest - 0.34, firstPocketTouch ? 0.7 : 0);
+      sound.impact(impact ?? "bowl", 1 - Math.exp(-kick * 0.62), pan);
+    }
+  }
+
   return {
     world,
     assignments,
@@ -285,6 +359,7 @@ export const createRouletteScene: CreateDrawScene = ({
       onRail = true;
       touchedPocket = false;
       pocketMotion = 0;
+      lastSoundPocket = undefined;
       body.setLinearDamping(descentDamping);
       body.setAngularDamping(0.065);
       ballCollider.setRestitution(descentRestitution);
@@ -364,13 +439,15 @@ export const createRouletteScene: CreateDrawScene = ({
         relativeSpeed < settledSpeed;
 
       const touchingFloor = (mayTouchFloor || withinPocket) && touchesPocketFloor(touchedPocket);
-      if (!touchedPocket && touchingFloor) {
+      const firstPocketTouch = !touchedPocket && touchingFloor;
+      if (firstPocketTouch) {
         touchedPocket = true;
         body.setLinearDamping(pocketDamping);
         body.setAngularDamping(0.019);
         ballCollider.setRestitution(0.18);
       }
 
+      observeSound(rollingSpeed, radius, pocket, position.x / launchRadius, firstPocketTouch);
       const settling = withinPocket && touchingFloor;
       if (!settling || pocket !== settlingPocket) {
         settledTime = 0;

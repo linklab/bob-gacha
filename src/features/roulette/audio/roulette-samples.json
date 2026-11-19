@@ -1,0 +1,66 @@
+{
+  "rail": {
+    "start": 0.0,
+    "duration": 1.94
+  },
+  "pockets": {
+    "start": 1.944,
+    "duration": 1.84
+  },
+  "bumper": [
+    {
+      "start": 3.788,
+      "duration": 0.08
+    },
+    {
+      "start": 3.872,
+      "duration": 0.08
+    },
+    {
+      "start": 3.956,
+      "duration": 0.08
+    }
+  ],
+  "fret": [
+    {
+      "start": 4.04,
+      "duration": 0.068
+    },
+    {
+      "start": 4.112,
+      "duration": 0.068
+    },
+    {
+      "start": 4.184,
+      "duration": 0.068
+    },
+    {
+      "start": 4.256,
+      "duration": 0.068
+    },
+    {
+      "start": 4.328,
+      "duration": 0.068
+    }
+  ],
+  "bowl": [
+    {
+      "start": 4.4,
+      "duration": 0.078
+    },
+    {
+      "start": 4.482,
+      "duration": 0.078
+    }
+  ],
+  "cone": [
+    {
+      "start": 4.564,
+      "duration": 0.074
+    },
+    {
+      "start": 4.642,
+      "duration": 0.074
+    }
+  ]
+}
