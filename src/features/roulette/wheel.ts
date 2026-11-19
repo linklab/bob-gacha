@@ -28,8 +28,8 @@ export const pocketAngle = fullTurn / pocketNumbers.length;
 export const ballRadius = 0.12;
 export const pocketInner = 1.91;
 export const pocketOuter = 2.66;
-export const pocketFloor = 0.218;
-export const pocketRise = 0.065;
+export const pocketFloor = 0.367;
+export const pocketRise = 0.022;
 export const trackProfile = [
   [3.15, 0.605],
   [3.37, 0.705],
@@ -131,7 +131,7 @@ function ridgeGeometry(
 }
 
 export const dividerGeometry = () =>
-  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.158);
+  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.041);
 export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.24, 0.11);
 const deflectorCount = 12;
 export const deflectorAngles = Array.from(

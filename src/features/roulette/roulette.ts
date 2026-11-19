@@ -76,7 +76,12 @@ export const createRouletteScene: CreateDrawScene = ({
       .setRestitution(0)
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
   );
-  const rotorFloor = world.createCollider(makeSurface(rotorProfile, 0.32), axle);
+  const rotorFloor = world.createCollider(
+    makeSurface(rotorProfile, 0.3)
+      .setRestitution(0.65)
+      .setRestitutionCombineRule(rapier.CoefficientCombineRule.Max),
+    axle,
+  );
   world.createCollider(makeSurface(crownProfile, 0.42), axle);
 
   const fret = dividerGeometry();
@@ -87,7 +92,11 @@ export const createRouletteScene: CreateDrawScene = ({
     if (!descriptor) throw new Error("룰렛 구분 칸을 만들 수 없습니다.");
     rotation.setFromAxisAngle(up, -(i + 0.5) * pocketAngle);
     world.createCollider(
-      descriptor.setRotation(rotation).setFriction(0.24).setRestitution(0.57),
+      descriptor
+        .setRotation(rotation)
+        .setFriction(0.22)
+        .setRestitution(0.7)
+        .setRestitutionCombineRule(rapier.CoefficientCombineRule.Max),
       axle,
     );
   }

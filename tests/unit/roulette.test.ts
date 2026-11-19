@@ -1,8 +1,16 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { PerspectiveCamera, Quaternion, Scene, Vector3 } from "three";
+import { MathUtils, PerspectiveCamera, Quaternion, Scene, Vector3 } from "three";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createRouletteScene } from "../../src/features/roulette/roulette";
-import { fullTurn, pocketAngle, pocketInner, pocketOuter } from "../../src/features/roulette/wheel";
+import {
+  fullTurn,
+  pocketAngle,
+  pocketFloor,
+  pocketInner,
+  pocketNumbers,
+  pocketOuter,
+  pocketRise,
+} from "../../src/features/roulette/wheel";
 import type { Candidate, DrawResult } from "../../src/lib/draw";
 
 const step = 1 / 120;
@@ -98,7 +106,7 @@ describe("룰렛", () => {
     expect(result.pocket).toBeGreaterThanOrEqual(0);
     expect(result.pocket).toBeLessThanOrEqual(36);
     expect(duration).toBeGreaterThan(11);
-    expect(duration).toBeLessThan(20);
+    expect(duration).toBeLessThan(21);
   });
 
   it("드래그를 놓은 각도에서 손을 뗀 방향과 속도로 실제 휠을 돌린다", () => {
@@ -261,6 +269,94 @@ describe("룰렛", () => {
         expect.soft(crossedSectors.size).toBeGreaterThan(1);
         expect(result).toBeDefined();
         expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
+      } finally {
+        draw.world.free();
+      }
+    },
+  );
+
+  it.each([
+    { spin: -1, seed: 31001, reachesCone: true },
+    { spin: 1, seed: 924, reachesCone: false },
+  ])(
+    "드래그 $spin 방향에서 처음 바닥에 닿은 포켓을 벗어나 다른 포켓에 안착한다",
+    ({ spin, seed, reachesCone }) => {
+      const draw = createRouletteScene({
+        rapier: RAPIER,
+        scene: new Scene(),
+        camera: new PerspectiveCamera(35, 1.55, 0.1, 100),
+        candidates,
+        random: seededRandom(seed),
+      });
+      draw.world.timestep = step;
+
+      try {
+        draw.turnWheel?.(0.63 * spin);
+        draw.start(spin);
+        const bodies = draw.world.bodies.getAll();
+        const ball = bodies.find(
+          (body) =>
+            body.numColliders() === 1 && body.collider(0).shapeType() === RAPIER.ShapeType.Ball,
+        );
+        const axle = bodies.find((body) => body !== ball && body.isKinematic());
+        if (!ball || !axle) throw new Error("공과 회전축이 필요합니다.");
+        const floor = axle.collider(0);
+        const cone = reachesCone ? axle.collider(1) : undefined;
+        const ballCollider = ball.collider(0);
+        let firstFloorPocket: number | undefined;
+        let firstFloorFrame: number | undefined;
+        let coneContactFrame: number | undefined;
+        let floorPocket: number | undefined;
+        let floorFrame = -1;
+        let result: DrawResult | undefined;
+
+        for (let frame = 0; frame < 25 / step && !result; frame++) {
+          draw.beforeStep?.(step);
+          draw.world.step();
+          result = draw.afterStep(step);
+          floorPocket = undefined;
+          draw.world.contactPair(ballCollider, floor, (manifold, flipped) => {
+            for (let index = 0; index < manifold.numContacts(); index++) {
+              if (manifold.contactDist(index) > 0.003) continue;
+              const point = flipped
+                ? manifold.localContactPoint1(index)
+                : manifold.localContactPoint2(index);
+              if (!point) continue;
+              const radius = Math.hypot(point.x, point.z);
+              if (radius <= pocketInner || radius >= pocketOuter) continue;
+              const floorY =
+                pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
+              if (Math.abs(point.y - floorY) > 0.01) continue;
+              const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
+              floorPocket = pocketNumbers[MathUtils.euclideanModulo(sector, pocketNumbers.length)];
+              floorFrame = frame;
+              firstFloorPocket ??= floorPocket;
+              firstFloorFrame ??= frame;
+            }
+          });
+          if (
+            cone &&
+            firstFloorFrame !== undefined &&
+            frame > firstFloorFrame &&
+            coneContactFrame === undefined
+          ) {
+            draw.world.contactPair(ballCollider, cone, (manifold) => {
+              for (let index = 0; index < manifold.numContacts(); index++) {
+                if (manifold.contactDist(index) <= 0.003) coneContactFrame = frame;
+              }
+            });
+          }
+        }
+
+        if (!result) throw new Error("룰렛 공이 25초 안에 포켓에 안착하지 않았습니다.");
+        expect(firstFloorPocket).toBeDefined();
+        expect(floorPocket).toBe(result.pocket);
+        expect(firstFloorPocket).not.toBe(result.pocket);
+        if (reachesCone) {
+          expect(coneContactFrame).toBeDefined();
+          expect(floorFrame).toBeGreaterThan(coneContactFrame!);
+        }
+        expect(draw.assignments?.get(result.candidate.id)).toContain(result.pocket);
       } finally {
         draw.world.free();
       }
