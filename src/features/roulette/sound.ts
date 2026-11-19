@@ -26,7 +26,21 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
   master.gain.value = volume;
   master.connect(compressor).connect(context.destination);
 
-  function voice(clip: Clip, gain: number, pan: number, pitch: number, loop = false) {
+  const fretPresence = context.createBiquadFilter();
+  fretPresence.type = "peaking";
+  fretPresence.frequency.value = 2300;
+  fretPresence.Q.value = 0.85;
+  fretPresence.gain.value = 3;
+  fretPresence.connect(master);
+
+  function voice(
+    clip: Clip,
+    gain: number,
+    pan: number,
+    pitch: number,
+    loop = false,
+    output: AudioNode = master,
+  ) {
     const source = context.createBufferSource();
     const level = context.createGain();
     const position = context.createStereoPanner();
@@ -35,7 +49,7 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
     source.playbackRate.value = pitch;
     level.gain.value = gain;
     position.pan.value = pan;
-    source.connect(level).connect(position).connect(master);
+    source.connect(level).connect(position).connect(output);
     if (loop) {
       source.loopStart = clip.start;
       source.loopEnd = clip.start + clip.duration;
@@ -50,8 +64,19 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
   const pockets = voice(samples.pockets, 0, 0, 1, true);
   const hits = new Set<ReturnType<typeof voice>>();
 
-  function play(clip: Clip, gain: number, pan: number, pitch: number) {
-    const hit = voice(clip, gain, clamp(pan, -0.68, 0.68), pitch);
+  function play(kind: DrawImpact, take: number, strength: number, pan: number) {
+    const isFret = kind === "fret";
+    const intensity = Math.sqrt(clamp(strength));
+    const gain = isFret ? Math.min(intensity * 1.5, 0.89) : intensity * 0.88;
+    const pitch = 0.97 + strength * 0.07;
+    const hit = voice(
+      samples[kind][take],
+      gain,
+      clamp(pan, -0.68, 0.68),
+      pitch,
+      false,
+      isFret ? fretPresence : master,
+    );
     hits.add(hit);
     hit.source.onended = () => {
       hits.delete(hit);
@@ -77,7 +102,7 @@ function createMixer(context: AudioContext, recording: AudioBuffer) {
       const strength = Math.sqrt(power) * clamp((speed - 0.18) / 0.9);
       const track = onRail ? rail : pockets;
       const other = onRail ? pockets : rail;
-      approach(track.level.gain, strength * (onRail ? 0.93 : 0.61), time, 0.022);
+      approach(track.level.gain, strength * (onRail ? 0.79 : 0.44), time, 0.022);
       approach(other.level.gain, 0, time, 0.025);
       approach(track.source.playbackRate, 0.83 + power * 0.31, time, 0.043);
       approach(track.position.pan, clamp(pan, -0.72, 0.72), time, 0.051);
@@ -211,12 +236,9 @@ export function createRouletteSound(initiallyEnabled: boolean) {
       const previous = contacts.get(kind);
       const spacing = kind === "fret" ? 0.032 : 0.048;
       if (previous && time - previous.time < spacing) return;
-      const takes = samples[kind];
-      const take = ((previous?.take ?? -1) + 1) % takes.length;
+      const take = ((previous?.take ?? -1) + 1) % samples[kind].length;
       contacts.set(kind, { time, take });
-      const gain = clamp(Math.sqrt(strength) * 0.88);
-      const pitch = 0.97 + strength * 0.07;
-      withMixer((current) => current.play(takes[take], gain, pan, pitch));
+      withMixer((current) => current.play(kind, take, strength, pan));
     },
   };
 
