@@ -31,6 +31,7 @@ const descentDamping = 0.09;
 const pocketDamping = 0.037;
 const pocketMotionDuration = 5.05;
 const settledSpeed = 0.24;
+const closeUpDelay = 0.24;
 const descentRestitution = 0.41;
 const up = new Vector3(0, 1, 0);
 
@@ -150,6 +151,7 @@ export const createRouletteScene: CreateDrawScene = ({
   let settledTime = 0;
   let railView = 0;
   let cameraClose = 0;
+  let finalCloseUp = false;
   let aspect = camera.aspect;
 
   const localPosition = new Vector3();
@@ -380,6 +382,7 @@ export const createRouletteScene: CreateDrawScene = ({
       onRotor = false;
       railView = 0;
       cameraClose = 0;
+      finalCloseUp = false;
       focus.set(0, 0, 0);
       settlingPocket = -1;
       settledTime = 0;
@@ -418,13 +421,6 @@ export const createRouletteScene: CreateDrawScene = ({
       const mayTouchFloor =
         !touchedPocket && radius > pocketInner - ballRadius && radius < pocketOuter + ballRadius;
       onRotor ||= radius < 3.12;
-      const runningDownBank = 1 - MathUtils.smoothstep(radius, 3.12, 3.98);
-      const viewTarget = onRotor ? (settledTime > 0 ? 1 : 0.8) : runningDownBank * 0.65;
-      railView = MathUtils.damp(railView, onRail ? 1 : 0, 5.4, dt);
-      cameraClose = MathUtils.damp(cameraClose, viewTarget, 3.6, dt);
-      const focusBlend = 1 - Math.exp(-3.2 * dt);
-      focus.x += (position.x * cameraClose * 0.56 - focus.x) * focusBlend;
-      focus.z += (position.z * cameraClose * 0.56 - focus.z) * focusBlend;
       const sector = Math.atan2(z, x) / pocketAngle;
       const nearestPocket = Math.round(sector);
       const pocket = MathUtils.euclideanModulo(nearestPocket, pocketNumbers.length);
@@ -453,9 +449,18 @@ export const createRouletteScene: CreateDrawScene = ({
         settledTime = 0;
         settlingPocket = pocket;
       }
+      if (settling) settledTime += dt;
 
-      if (!settling) return undefined;
-      settledTime += dt;
+      // Keep the final shot through brief interruptions in the settling check.
+      finalCloseUp ||= settledTime >= closeUpDelay;
+      const runningDownBank = 1 - MathUtils.smoothstep(radius, 3.12, 3.98);
+      const viewTarget = onRotor ? (finalCloseUp ? 1 : 0.8) : runningDownBank * 0.65;
+      railView = MathUtils.damp(railView, onRail ? 1 : 0, 5.4, dt);
+      cameraClose = MathUtils.damp(cameraClose, viewTarget, 3.6, dt);
+      const focusBlend = 1 - Math.exp(-3.2 * dt);
+      focus.x += (position.x * cameraClose * 0.56 - focus.x) * focusBlend;
+      focus.z += (position.z * cameraClose * 0.56 - focus.z) * focusBlend;
+
       if (settledTime < 0.68 || Math.abs(rotorSpeed) > 0.13) return undefined;
 
       active = false;

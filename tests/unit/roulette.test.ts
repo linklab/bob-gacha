@@ -129,6 +129,44 @@ describe("룰렛", () => {
     await RAPIER.init();
   });
 
+  it("공이 0.24초 연속 안착한 뒤 확대하고 다시 움직여도 줌을 유지한다", () => {
+    const camera = new PerspectiveCamera(35, 1.55, 0.1, 100);
+    const draw = createRouletteScene({
+      rapier: RAPIER,
+      scene: new Scene(),
+      camera,
+      candidates: candidates.slice(0, 6),
+      random: seededRandom(72),
+    });
+    draw.world.timestep = step;
+
+    try {
+      draw.start();
+      let result: DrawResult | undefined;
+      const heights: number[] = [camera.position.y];
+      for (let frame = 1; frame <= roundLimit / step && !result; frame++) {
+        draw.beforeStep?.(step);
+        draw.world.step();
+        result = draw.afterStep(step);
+        draw.render();
+        heights.push(camera.position.y);
+      }
+
+      // Seed 72 first settles around 17.58 seconds and moves again around 18.24 seconds.
+      const heightAt = (time: number) => heights[Math.round(time / step)];
+      expect(result?.pocket).toBe(25);
+      expect(heightAt(17.8)).toBeCloseTo(heightAt(17.5), 3);
+      expect(heightAt(18.2)).toBeLessThan(heightAt(17.8) - 0.4);
+      const closeUp = heights.slice(Math.round(17.8 / step));
+      const largestZoomOut = Math.max(
+        ...closeUp.slice(1).map((height, index) => height - closeUp[index]),
+      );
+      expect(largestZoomOut).toBeLessThanOrEqual(1e-6);
+    } finally {
+      draw.world.free();
+    }
+  });
+
   it.each([
     { spin: -1, seed: 2001 },
     { spin: -1, seed: 31001 },
