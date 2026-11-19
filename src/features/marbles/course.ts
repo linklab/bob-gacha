@@ -1,5 +1,4 @@
 import {
-  AmbientLight,
   BoxGeometry,
   CanvasTexture,
   Color,
@@ -7,6 +6,7 @@ import {
   DirectionalLight,
   Fog,
   Group,
+  HemisphereLight,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
@@ -58,7 +58,7 @@ export function createLabelTexture(label: string, isNumber = true) {
   if (!ctx) return;
 
   if (isNumber) {
-    ctx.fillStyle = "#fff5de";
+    ctx.fillStyle = "#f4f4f6";
     ctx.beginPath();
     ctx.arc(64, 64, 55, 0, Math.PI * 2);
     ctx.fill();
@@ -66,7 +66,7 @@ export function createLabelTexture(label: string, isNumber = true) {
   ctx.font = isNumber ? "bold 74px sans-serif" : "bold 72px sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillStyle = isNumber ? "#192522" : "#fff5de";
+  ctx.fillStyle = isNumber ? "#17191e" : "#f4f4f6";
   ctx.fillText(label, canvas.width / 2, 67);
 
   const texture = new CanvasTexture(canvas);
@@ -75,30 +75,32 @@ export function createLabelTexture(label: string, isNumber = true) {
 }
 
 export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Rapier["World"]>) {
-  const backdrop = new Color("#10211c");
+  const backdrop = new Color("#14151a");
   scene.background = backdrop;
-  scene.fog = new Fog(backdrop, 37, 86);
+  scene.fog = new Fog(backdrop, 32, 78);
 
-  const surface = new MeshStandardMaterial({ color: "#354943", roughness: 0.82 });
-  const guard = new MeshStandardMaterial({ color: "#172925", roughness: 0.55 });
-  const edge = new MeshStandardMaterial({ color: "#b7ceaa", roughness: 0.54 });
-  const support = new MeshStandardMaterial({ color: "#263633", roughness: 0.82 });
-  const markings = new MeshStandardMaterial({ color: "#60786b", roughness: 0.79 });
-  const bright = new MeshStandardMaterial({ color: "#fff0cf", roughness: 0.65 });
-  const obstacle = new MeshStandardMaterial({ color: "#f39b64", roughness: 0.36 });
-  const spinnerPaint = new MeshStandardMaterial({ color: "#e7ca66", roughness: 0.36 });
+  const surface = new MeshStandardMaterial({ color: "#454953", roughness: 0.63 });
+  const guard = new MeshStandardMaterial({ color: "#343741", roughness: 0.6 });
+  const edge = new MeshStandardMaterial({ color: "#858b9a", roughness: 0.47, metalness: 0.12 });
+  const support = new MeshStandardMaterial({ color: "#30333c", roughness: 0.76 });
+  const markings = new MeshStandardMaterial({ color: "#626877", roughness: 0.78 });
+  const bright = new MeshStandardMaterial({ color: "#d4d6de", roughness: 0.67 });
+  const obstacle = new MeshStandardMaterial({ color: "#dc966d", roughness: 0.46 });
+  const spinnerPaint = new MeshStandardMaterial({ color: "#a7adbc", roughness: 0.49 });
   const vertical = new Vector3(0, 1, 0);
-  const keyOffset = new Vector3(-8, 15, -3);
-  const key = new DirectionalLight("#fff0dd", 2.1);
+  const keyOffset = new Vector3(-6, 19, -5);
+  const key = new DirectionalLight("#fff5ea", 2.25);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
-  Object.assign(key.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, far: 36 });
+  key.shadow.intensity = 0.58;
+  key.shadow.radius = 2;
+  Object.assign(key.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, far: 40 });
   key.shadow.camera.updateProjectionMatrix();
   key.shadow.bias = -0.0003;
   key.shadow.normalBias = 0.025;
-  const fill = new DirectionalLight("#a3e2c6", 0.85);
-  fill.position.set(8, 4, 6);
-  scene.add(new AmbientLight("#dbeadf", 1.1), key, key.target, fill);
+  const fill = new DirectionalLight("#dce4ff", 1.05);
+  fill.position.set(8, 5, -7);
+  scene.add(new HemisphereLight("#edeeff", "#8a8792", 1.35), key, key.target, fill);
 
   function addBox(
     width: number,
@@ -134,11 +136,10 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
 
   const floor = new Mesh(
     new PlaneGeometry(125, 145),
-    new MeshStandardMaterial({ color: "#142722", roughness: 1 }),
+    new MeshStandardMaterial({ color: "#1a1c22", roughness: 1 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(0, -1.7, 23);
-  floor.receiveShadow = true;
   scene.add(floor);
 
   let start = 0;

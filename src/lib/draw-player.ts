@@ -71,6 +71,7 @@ export function createDrawPlayer(
   let previousTime = 0;
   let elapsed = 0;
   let pending = 0;
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const observer = new ResizeObserver(() => draw());
   renderer.domElement.addEventListener("webglcontextlost", handleContextLoss);
 
@@ -110,7 +111,7 @@ export function createDrawPlayer(
         pending -= timeStep;
         elapsed += timeStep;
       }
-      draw();
+      if (!reducedMotion.matches || result || elapsed >= maxDuration) draw();
       if (result) {
         events.onResult(result);
       } else if (elapsed >= maxDuration) {

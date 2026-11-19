@@ -57,6 +57,13 @@
     : phase === "finished" || phase === "failed" ? "다시 뽑기"
     : settings.action,
   );
+  const stageStatus = $derived(
+    isRunning ? settings.running
+    : message ? message
+    : phase === "loading" ? "장면 불러오는 중"
+    : validation ? "후보 확인 필요"
+    : "준비 완료",
+  );
 
   function makeCandidates(entries: string[]): Candidate[] {
     return entries.map((name, index) => ({ id: index + 1, name, color: colors[index] }));
@@ -181,6 +188,8 @@
         <button
           type="button"
           aria-pressed={mode === id}
+          aria-controls="draw-stage"
+          disabled={isRunning && mode !== id}
           onclick={() => { if (mode !== id) void showMode(id); }}
         >{modes[id].title}</button>
       {/each}
@@ -193,32 +202,48 @@
       <p>{settings.description}</p>
     </div>
     <div class="draw-layout">
-      <section class="draw-stage" aria-label={settings.title}>
+      <section class="draw-stage" id="draw-stage" aria-label={settings.title}>
         <div class="scene-view">
           <div class="scene-canvas" bind:this={viewport}></div>
           {#if phase === "loading"}
-            <span class="scene-loading" role="status">장면 불러오는 중</span>
+            <span class="scene-loading" aria-hidden="true"></span>
           {/if}
-          <span class="frame-corner frame-top-left" aria-hidden="true"></span>
-          <span class="frame-corner frame-top-right" aria-hidden="true"></span>
-          <span class="frame-corner frame-bottom-left" aria-hidden="true"></span>
-          <span class="frame-corner frame-bottom-right" aria-hidden="true"></span>
         </div>
-        <div class="stage-readout" class:active={isRunning} aria-live="polite" aria-atomic="true">
-          <span class="status-light" style:background={result?.candidate.color} aria-hidden="true"></span>
-          {#if result}
-            <div class="draw-result" data-testid="draw-result">
-              <span>당첨</span>
-              <strong>{result.candidate.name}</strong>
-              {#if result.pocket !== undefined}<span class="pocket-result">{result.pocket}번 포켓</span>{/if}
-            </div>
-          {:else if isRunning}
-            <span>{settings.running}</span>
-          {:else if message}
-            <span>{message}</span>
-          {:else if phase === "ready"}
-            <span>준비 완료</span>
-          {/if}
+        <div class="stage-toolbar">
+          <div class="stage-readout" class:active={isRunning} aria-live="polite" aria-atomic="true">
+            {#if result}
+              <div class="draw-result" data-testid="draw-result">
+                <span class="result-label">당첨</span>
+                <strong>{result.candidate.name}</strong>
+                <span class="pocket-result">
+                  {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
+                </span>
+                {#if validation}
+                  <span class="next-draw-warning">후보 확인 필요</span>
+                {/if}
+              </div>
+            {:else}
+              <span class="stage-status" class:error-status={!!message || !!validation}>
+                <span class="status-light" aria-hidden="true"></span>
+                {stageStatus}
+              </span>
+            {/if}
+          </div>
+          <button
+            class="draw-action"
+            class:stop-button={isRunning}
+            type="button"
+            disabled={phase === "loading" || (!isRunning && phase !== "unavailable" && !!validation)}
+            aria-describedby={validation && phase !== "unavailable" ? "candidate-error" : undefined}
+            onclick={handleControl}
+          >
+            {#if isRunning}
+              <span class="stop-mark" aria-hidden="true"></span>
+            {:else if phase !== "unavailable"}
+              <span class="play-mark" aria-hidden="true"></span>
+            {/if}
+            {action}
+          </button>
         </div>
       </section>
 
@@ -227,7 +252,7 @@
           <label for="candidates">후보</label>
           <span class="candidate-count">{names.length}개</span>
         </div>
-        <p id="candidate-hint">한 줄에 하나씩 · 2–{maxCandidates}개</p>
+        <p id="candidate-hint">한 줄에 하나씩, 2–{maxCandidates}개</p>
         <textarea
           id="candidates"
           spellcheck="false"
@@ -235,24 +260,29 @@
           rows="6"
           aria-describedby={validation ? "candidate-hint candidate-error" : "candidate-hint"}
           aria-invalid={!!validation}
-          disabled={isRunning}
+          readonly={isRunning}
           bind:value={draft}
         ></textarea>
-        {#if validation}
-          <p id="candidate-error" class="candidate-error">{validation}</p>
-        {/if}
-        {#if mode === "race" && !validation}
-          <ul class="entrants" aria-label="구슬 번호">
-            {#each sceneCandidates as candidate (candidate.id)}
-              <li>
-                <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
-                <span class="entrant-name">{candidate.name}</span>
-              </li>
-            {/each}
-          </ul>
+        <div aria-live="polite">
+          {#if validation}
+            <p id="candidate-error" class="candidate-error">{validation}</p>
+          {/if}
+        </div>
+        {#if mode === "race" && phase !== "loading" && phase !== "unavailable" && (!validation || result)}
+          <details class="round-details" open>
+            <summary>{result ? "직전 경주 구슬 번호" : "구슬 번호"}</summary>
+            <ul class="entrants">
+              {#each sceneCandidates as candidate (candidate.id)}
+                <li>
+                  <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
+                  <span class="entrant-name">{candidate.name}</span>
+                </li>
+              {/each}
+            </ul>
+          </details>
         {:else if assignments}
-          <details class="pocket-assignments">
-            <summary>포켓 배정</summary>
+          <details class="round-details pocket-assignments" open>
+            <summary>{result ? "직전 룰렛 포켓 배정" : "포켓 배정"}</summary>
             <dl>
               {#each sceneCandidates as candidate (candidate.id)}
                 <div>
@@ -263,20 +293,6 @@
             </dl>
           </details>
         {/if}
-        <div class="draw-controls">
-          <button
-            class:start-button={!isRunning}
-            class:stop-button={isRunning}
-            type="button"
-            disabled={phase === "loading" || (!isRunning && phase !== "unavailable" && !!validation)}
-            onclick={handleControl}
-          >
-            {action}
-            {#if !isRunning && phase !== "unavailable"}
-              <span class="play-mark" aria-hidden="true"></span>
-            {/if}
-          </button>
-        </div>
       </aside>
     </div>
   </main>

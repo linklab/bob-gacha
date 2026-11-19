@@ -100,14 +100,14 @@ export const createMarbleRaceScene: CreateDrawScene = ({
   let started = false;
   let finished = false;
   let elapsed = 0;
-  let cameraZ = 5.25;
+  let cameraZ = 5.1;
   let aspect = camera.aspect;
   const facing = new Vector3();
 
   function render() {
     const lookY = trackHeight(cameraZ) + 0.46;
-    const scale = Math.max(1, 1.29 / aspect);
-    camera.position.set(8.6 * scale, lookY + 11.7 * scale, cameraZ - 12.8 * scale);
+    const scale = Math.max(1, 1.42 / aspect);
+    camera.position.set(6.6 * scale, lookY + 14.4 * scale, cameraZ - 13.2 * scale);
     camera.lookAt(0, lookY, cameraZ);
     lightAt(cameraZ);
 
