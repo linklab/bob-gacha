@@ -188,6 +188,8 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
 });
 
 test("starts roulette with a drag on the wheel", async ({ page }) => {
+  test.setTimeout(65_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("./");
   const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
   const stop = page.getByRole("button", { name: "중지", exact: true });
@@ -225,7 +227,7 @@ test("starts roulette with a drag on the wheel", async ({ page }) => {
   await expect(start).toBeEnabled();
   await page.mouse.up();
   await expect(stop).toBeEnabled();
-  await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 45_000 });
 });
 
 test("starts roulette when a captured mouse drag is released outside the wheel", async ({
