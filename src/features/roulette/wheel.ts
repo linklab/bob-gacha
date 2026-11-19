@@ -132,7 +132,7 @@ function ridgeGeometry(
 
 export const dividerGeometry = () =>
   ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.041);
-export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.24, 0.11);
+export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.29, 0.055);
 const deflectorCount = 12;
 export const deflectorAngles = Array.from(
   { length: deflectorCount },

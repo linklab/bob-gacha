@@ -3,6 +3,7 @@ import { MathUtils, PerspectiveCamera, Quaternion, Scene, Vector3 } from "three"
 import { beforeAll, describe, expect, it } from "vitest";
 import { createRouletteScene } from "../../src/features/roulette/roulette";
 import {
+  ballRadius,
   fullTurn,
   pocketAngle,
   pocketFloor,
@@ -26,6 +27,37 @@ function seededRandom(seed: number) {
     state = (Math.imul(1664525, state) + 1013904223) >>> 0;
     return state / 2 ** 32;
   };
+}
+
+function pocketAtFloorContact(
+  world: RAPIER.World,
+  ballCollider: RAPIER.Collider,
+  floor: RAPIER.Collider,
+  rebounded: boolean,
+  allowRestingGap = false,
+) {
+  let pocket: number | undefined;
+  const ballBottom = ballCollider.translation().y - ballRadius;
+  world.contactPair(ballCollider, floor, (manifold, flipped) => {
+    for (let index = 0; index < manifold.numContacts(); index++) {
+      if (allowRestingGap && manifold.contactDist(index) > 0.003) continue;
+      const point = flipped
+        ? manifold.localContactPoint1(index)
+        : manifold.localContactPoint2(index);
+      if (!point) continue;
+      const radius = Math.hypot(point.x, point.z);
+      if (radius <= pocketInner || radius >= pocketOuter) continue;
+      const floorY =
+        pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
+      if (Math.abs(point.y - floorY) >= 0.01) continue;
+      const impact =
+        manifold.contactImpulse(index) > 1e-6 || (rebounded && ballBottom <= floorY + 0.006);
+      if (!allowRestingGap && !impact) continue;
+      const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
+      pocket = pocketNumbers[MathUtils.euclideanModulo(sector, pocketNumbers.length)];
+    }
+  });
+  return pocket;
 }
 
 function runDraw(entrants: readonly Candidate[], random: () => number) {
@@ -92,6 +124,69 @@ describe("룰렛", () => {
   beforeAll(async () => {
     await RAPIER.init();
   });
+
+  it.each([
+    { spin: -1, seed: 31001 },
+    { spin: -0.01, seed: 1957 },
+    { spin: -0.01, seed: 2543 },
+    { spin: -0.01, seed: 26391 },
+    { spin: 0, seed: 2814 },
+    { spin: 0.01, seed: 924 },
+    { spin: 0.65, seed: 12028 },
+    { spin: 1, seed: 18803 },
+    { spin: 1, seed: 31001 },
+  ])(
+    "회전 입력 $spin / 시드 $seed 조건에서 공이 첫 포켓 바닥 접촉 직전에 25rpm 이상 돈다",
+    ({ spin, seed }) => {
+      const draw = createRouletteScene({
+        rapier: RAPIER,
+        scene: new Scene(),
+        camera: new PerspectiveCamera(35, 1.55, 0.1, 100),
+        candidates,
+        random: seededRandom(seed),
+      });
+      draw.world.timestep = step;
+
+      try {
+        draw.turnWheel?.(0.63 * Math.sign(spin));
+        draw.start(spin);
+        const bodies = draw.world.bodies.getAll();
+        const ball = bodies.find(
+          (body) =>
+            body.numColliders() === 1 && body.collider(0).shapeType() === RAPIER.ShapeType.Ball,
+        );
+        const axle = bodies.find((body) => body !== ball && body.isKinematic());
+        if (!ball || !axle) throw new Error("공과 회전축이 필요합니다.");
+        const floor = axle.collider(0);
+        const ballCollider = ball.collider(0);
+        const approachDamping = ball.linearDamping();
+        let dampingChangeFrame: number | undefined;
+        let contactFrame: number | undefined;
+        let entryRpm: number | undefined;
+
+        for (let frame = 0; frame < 25 / step && entryRpm === undefined; frame++) {
+          draw.beforeStep?.(step);
+          const { x, z } = ball.translation();
+          const velocity = ball.linvel();
+          const orbitalSpeed = Math.abs(x * velocity.z - z * velocity.x) / (x * x + z * z);
+          draw.world.step();
+          const rebounded = velocity.y < 0 && ball.linvel().y >= 0;
+          if (pocketAtFloorContact(draw.world, ballCollider, floor, rebounded) !== undefined) {
+            contactFrame = frame;
+            entryRpm = (orbitalSpeed * 60) / fullTurn;
+          }
+          draw.afterStep(step);
+          if (ball.linearDamping() !== approachDamping) dampingChangeFrame ??= frame;
+        }
+
+        expect(entryRpm).toBeDefined();
+        expect(entryRpm).toBeGreaterThanOrEqual(25);
+        expect(dampingChangeFrame).toBe(contactFrame);
+      } finally {
+        draw.world.free();
+      }
+    },
+  );
 
   it.each([
     [2, 924],
@@ -276,7 +371,7 @@ describe("룰렛", () => {
   );
 
   it.each([
-    { spin: -1, seed: 31001, reachesCone: true },
+    { spin: -1, seed: 11141271, reachesCone: true },
     { spin: 1, seed: 924, reachesCone: false },
   ])(
     "드래그 $spin 방향에서 처음 바닥에 닿은 포켓을 벗어나 다른 포켓에 안착한다",
@@ -312,28 +407,18 @@ describe("룰렛", () => {
 
         for (let frame = 0; frame < 25 / step && !result; frame++) {
           draw.beforeStep?.(step);
+          const falling = ball.linvel().y < 0;
           draw.world.step();
+          const rebounded = falling && ball.linvel().y >= 0;
           result = draw.afterStep(step);
-          floorPocket = undefined;
-          draw.world.contactPair(ballCollider, floor, (manifold, flipped) => {
-            for (let index = 0; index < manifold.numContacts(); index++) {
-              if (manifold.contactDist(index) > 0.003) continue;
-              const point = flipped
-                ? manifold.localContactPoint1(index)
-                : manifold.localContactPoint2(index);
-              if (!point) continue;
-              const radius = Math.hypot(point.x, point.z);
-              if (radius <= pocketInner || radius >= pocketOuter) continue;
-              const floorY =
-                pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
-              if (Math.abs(point.y - floorY) > 0.01) continue;
-              const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
-              floorPocket = pocketNumbers[MathUtils.euclideanModulo(sector, pocketNumbers.length)];
-              floorFrame = frame;
-              firstFloorPocket ??= floorPocket;
-              firstFloorFrame ??= frame;
-            }
-          });
+          floorPocket = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded);
+          if (floorPocket !== undefined) {
+            floorFrame = frame;
+            firstFloorPocket ??= floorPocket;
+            firstFloorFrame ??= frame;
+          }
+          if (result)
+            floorPocket = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded, true);
           if (
             cone &&
             firstFloorFrame !== undefined &&
@@ -342,7 +427,8 @@ describe("룰렛", () => {
           ) {
             draw.world.contactPair(ballCollider, cone, (manifold) => {
               for (let index = 0; index < manifold.numContacts(); index++) {
-                if (manifold.contactDist(index) <= 0.003) coneContactFrame = frame;
+                if (manifold.contactDist(index) <= 0 || manifold.contactImpulse(index) > 1e-6)
+                  coneContactFrame = frame;
               }
             });
           }
