@@ -3,6 +3,13 @@ import celebrationUrl from "./audio/draw-win.mp3?inline";
 import type { DrawImpact, DrawMode, DrawSound } from "./draw";
 
 const recordingUrl = new URL("../features/roulette/audio/roulette-samples.wav", import.meta.url);
+const celebrationPreviewUrl = import.meta.env.DEV
+  ? import.meta.glob<string>("./audio/preview.local/draw-win.wav", {
+      eager: true,
+      import: "default",
+      query: "?inline",
+    })["./audio/preview.local/draw-win.wav"]
+  : undefined;
 const volume = 0.9;
 const clamp = (value: number, min = 0, max = 1) => Math.min(max, Math.max(min, value));
 
@@ -65,7 +72,7 @@ function createMixer(context: AudioContext) {
   const hits = new Set<ReturnType<typeof voice>>();
   let tracks: ReturnType<typeof rouletteTracks> | undefined;
   let celebration: AudioBuffer | undefined;
-  void fetch(celebrationUrl)
+  void fetch(celebrationPreviewUrl ?? celebrationUrl)
     .then((response) => response.arrayBuffer())
     .then((bytes) => context.decodeAudioData(bytes))
     .then((clip) => {
