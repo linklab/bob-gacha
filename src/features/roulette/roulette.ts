@@ -29,7 +29,10 @@ const descentStart = 3.37;
 const descentEnd = 2.81;
 const pocketApproachSpeed = 3.16;
 const descentDamping = 0.13;
-const pocketDamping = 0.7;
+const pocketDamping = 0.047;
+const pocketMotionDuration = 5.05;
+const settledSpeed = 0.24;
+const descentRestitution = 0.41;
 const up = new Vector3(0, 1, 0);
 
 function shuffledCandidates(candidates: readonly Candidate[], random: () => number) {
@@ -82,12 +85,13 @@ export const createRouletteScene: CreateDrawScene = ({
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
   );
   const rotorFloor = world.createCollider(
-    makeSurface(rotorProfile, 0.3)
-      .setRestitution(0.55)
-      .setRestitutionCombineRule(rapier.CoefficientCombineRule.Max),
+    makeSurface(rotorProfile, 0.018)
+      .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
+      .setRestitution(0.15)
+      .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
     axle,
   );
-  world.createCollider(makeSurface(crownProfile, 0.42), axle);
+  world.createCollider(makeSurface(crownProfile, 0.14).setRestitution(0.13), axle);
 
   const fret = dividerGeometry();
   const fretVertices = vertexPositions(fret);
@@ -99,9 +103,10 @@ export const createRouletteScene: CreateDrawScene = ({
     world.createCollider(
       descriptor
         .setRotation(rotation)
-        .setFriction(0.22)
-        .setRestitution(0.61)
-        .setRestitutionCombineRule(rapier.CoefficientCombineRule.Max),
+        .setFriction(0.02)
+        .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
+        .setRestitution(0.18)
+        .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
       axle,
     );
   }
@@ -138,7 +143,7 @@ export const createRouletteScene: CreateDrawScene = ({
       .setAdditionalSolverIterations(4),
   );
   const ballCollider = world.createCollider(
-    rapier.ColliderDesc.ball(ballRadius).setFriction(0.34).setRestitution(0.41),
+    rapier.ColliderDesc.ball(ballRadius).setFriction(0.34).setRestitution(descentRestitution),
     body,
   );
 
@@ -151,6 +156,8 @@ export const createRouletteScene: CreateDrawScene = ({
   let railAngle = idleAngle;
   let railSpeed = 0;
   let touchedPocket = false;
+  let pocketMotion = 0;
+  let rollingDirection = 1;
   let incomingVerticalSpeed = 0;
   let onRotor = false;
   let settlingPocket = -1;
@@ -244,6 +251,42 @@ export const createRouletteScene: CreateDrawScene = ({
     );
   }
 
+  function stepPocketMotion(dt: number) {
+    dampOuterRebound(dt);
+    const { x, y, z } = body.translation();
+    const radius = Math.hypot(x, z);
+    if (radius === 0 || radius >= 3.4) return;
+
+    const velocity = body.linvel();
+    // Soften launches from the shoulders while preserving lateral deflections.
+    const vertical = velocity.y > 1.85 ? MathUtils.damp(velocity.y, 1.85, 90, dt) : velocity.y;
+    let tangentialGain = 0;
+    if (
+      pocketMotion < pocketMotionDuration &&
+      radius > pocketInner - ballRadius &&
+      radius < pocketOuter + ballRadius &&
+      y < pocketFloor + pocketRise + ballRadius + 0.052
+    ) {
+      const tangent = (-z * velocity.x + x * velocity.z) / radius + rotorSpeed * radius;
+      if (Math.abs(tangent) > 0.65) rollingDirection = Math.sign(tangent);
+      const remaining = pocketMotionDuration - pocketMotion;
+      const target = MathUtils.lerp(0.82, 1.68, MathUtils.smoothstep(remaining, 0, 0.5));
+      // A little rolling assistance on the floor keeps slow balls crossing the low frets.
+      tangentialGain =
+        rollingDirection * MathUtils.clamp(target - tangent * rollingDirection, 0, 8 * dt);
+    }
+    if (vertical !== velocity.y || tangentialGain !== 0) {
+      body.setLinvel(
+        {
+          x: velocity.x - (z / radius) * tangentialGain,
+          y: vertical,
+          z: velocity.z + (x / radius) * tangentialGain,
+        },
+        true,
+      );
+    }
+  }
+
   function touchesPocketFloor(allowRestingGap = false) {
     let touching = false;
     const rebounded = incomingVerticalSpeed < 0 && body.linvel().y >= 0;
@@ -304,7 +347,12 @@ export const createRouletteScene: CreateDrawScene = ({
       railSpeed = Math.sign(rotorSpeed) * (MathUtils.lerp(7.25, 8.9, power) + random() * 0.45);
       onRail = true;
       touchedPocket = false;
+      pocketMotion = 0;
+      rollingDirection = Math.sign(railSpeed);
       body.setLinearDamping(descentDamping);
+      body.setAngularDamping(0.065);
+      body.setGravityScale(1, true);
+      ballCollider.setRestitution(descentRestitution);
       ballRotation.identity();
       body.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
       body.setEnabled(true);
@@ -335,11 +383,11 @@ export const createRouletteScene: CreateDrawScene = ({
 
       // Keep the quaternion continuous across full turns so the axle does not jolt the ball.
       rotorAngle += rotorSpeed * dt;
-      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.44 : 0.055;
+      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.12 : 0.055;
       rotorSpeed *= Math.exp(-brake * dt);
       axle.setNextKinematicRotation(rotation.setFromAxisAngle(up, rotorAngle));
       if (onRail) stepRail(dt);
-      else if (touchedPocket) dampOuterRebound(dt);
+      else if (touchedPocket) stepPocketMotion(dt);
       else guideDescent();
       incomingVerticalSpeed = body.linvel().y;
     },
@@ -349,11 +397,15 @@ export const createRouletteScene: CreateDrawScene = ({
       const position = body.translation();
       inverseRotation.copy(axle.rotation()).invert();
       localPosition.copy(position).applyQuaternion(inverseRotation);
+      const { x, y, z } = localPosition;
+      const radius = Math.hypot(x, z);
+      const rollingSpeed = Math.hypot(x - previousPosition.x, z - previousPosition.z) / dt;
       const relativeSpeed = localPosition.distanceTo(previousPosition) / dt;
       previousPosition.copy(localPosition);
 
-      const { x, y, z } = localPosition;
-      const radius = Math.hypot(x, z);
+      if (touchedPocket && radius < trackProfile[0][0] && rollingSpeed > settledSpeed) {
+        pocketMotion += dt;
+      }
       const mayTouchFloor =
         !touchedPocket && radius > pocketInner - ballRadius && radius < pocketOuter + ballRadius;
       onRotor ||= radius < 3.12;
@@ -370,16 +422,20 @@ export const createRouletteScene: CreateDrawScene = ({
       const distanceToDivider = (0.5 - Math.abs(sector - nearestPocket)) * pocketAngle * radius;
 
       const withinPocket =
+        pocketMotion >= pocketMotionDuration &&
         radius > pocketInner &&
         radius < pocketOuter &&
         y < pocketFloor + pocketRise + ballRadius + 0.024 &&
         distanceToDivider > ballRadius * 0.5 &&
-        relativeSpeed < 0.24;
+        relativeSpeed < settledSpeed;
 
       const touchingFloor = (mayTouchFloor || withinPocket) && touchesPocketFloor(touchedPocket);
       if (!touchedPocket && touchingFloor) {
         touchedPocket = true;
         body.setLinearDamping(pocketDamping);
+        body.setAngularDamping(0.02);
+        body.setGravityScale(0.9, true);
+        ballCollider.setRestitution(0.18);
       }
 
       const settling = withinPocket && touchingFloor;

@@ -39,21 +39,25 @@ export const trackProfile = [
   [4.132, 1.046],
   [4.138, 1.498],
 ] as const;
-export const rotorProfile = [
-  [1.71, 0.541],
-  [1.829, 0.463],
-  [pocketInner, pocketFloor],
+const numberBank = [
   [pocketOuter, pocketFloor + pocketRise],
-  [2.722, 0.426],
+  [2.735, 0.406],
+  [2.89, 0.458],
   [3.145, 0.606],
+] as const;
+export const rotorProfile = [
+  [1.71, 0.459],
+  [1.805, 0.404],
+  [pocketInner, pocketFloor],
+  ...numberBank,
 ] as const;
 export const crownProfile = [
   [0.001, 0.94],
   [0.385, 0.938],
   [0.781, 0.864],
-  [1.594, 0.626],
-  [1.689, 0.585],
-  [1.731, 0.541],
+  [1.48, 0.585],
+  [1.594, 0.511],
+  [1.731, 0.447],
 ] as const;
 
 const ivory = "#fff6e7";
@@ -131,7 +135,7 @@ function ridgeGeometry(
 }
 
 export const dividerGeometry = () =>
-  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.041);
+  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.14, 0.027);
 export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.29, 0.055);
 const deflectorCount = 12;
 export const deflectorAngles = Array.from(
@@ -260,10 +264,7 @@ function addPocket(
 
   if (labelSurface) {
     const labelGeometry = radialSurface(
-      [
-        [2.746, 0.459],
-        [3.113, 0.615],
-      ],
+      numberBank.slice(1).map(([radius, height]) => [radius, height + 0.016]),
       -pocketAngle * 0.477,
       pocketAngle * 0.477,
       6,
@@ -460,11 +461,7 @@ export function createWheel(scene: Scene) {
     6,
   );
   const tileGeometry = radialSurface(
-    [
-      [2.704, 0.394],
-      [2.722, 0.434],
-      [3.145, 0.614],
-    ],
+    numberBank.map(([radius, height]) => [radius, height + 0.008]),
     -pocketAngle * 0.484,
     pocketAngle * 0.484,
     6,
@@ -482,10 +479,9 @@ export function createWheel(scene: Scene) {
   addRing(
     rotor,
     [
-      [1.731, 0.534],
-      [1.778, 0.523],
-      [1.815, 0.486],
-      [1.858, 0.411],
+      [1.731, 0.453],
+      [1.805, 0.41],
+      [1.858, 0.391],
     ],
     brassMetal,
   );
@@ -495,9 +491,9 @@ export function createWheel(scene: Scene) {
   addRing(
     rotor,
     [
-      [1.555, 0.643],
-      [1.582, 0.636],
-      [1.612, 0.625],
+      [1.555, 0.543],
+      [1.582, 0.525],
+      [1.612, 0.509],
     ],
     bronze,
   );

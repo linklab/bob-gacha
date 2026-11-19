@@ -29,6 +29,10 @@ function seededRandom(seed: number) {
   };
 }
 
+function pocketHeight(radius: number) {
+  return pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
+}
+
 function pocketAtFloorContact(
   world: RAPIER.World,
   ballCollider: RAPIER.Collider,
@@ -47,8 +51,7 @@ function pocketAtFloorContact(
       if (!point) continue;
       const radius = Math.hypot(point.x, point.z);
       if (radius <= pocketInner || radius >= pocketOuter) continue;
-      const floorY =
-        pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
+      const floorY = pocketHeight(radius);
       if (Math.abs(point.y - floorY) >= 0.01) continue;
       const impact =
         manifold.contactImpulse(index) > 1e-6 || (rebounded && ballBottom <= floorY + 0.006);
@@ -371,7 +374,96 @@ describe("룰렛", () => {
   );
 
   it.each([
-    { spin: -1, seed: 11141271, reachesCone: true },
+    { spin: -1, seed: 31001 },
+    { spin: 1, seed: 31001 },
+  ])(
+    "회전 입력 $spin 때 첫 접촉 뒤 5초 이상 포켓 구역에서 움직이고 큰 도약 없이 안착한다",
+    ({ spin, seed }) => {
+      const draw = createRouletteScene({
+        rapier: RAPIER,
+        scene: new Scene(),
+        camera: new PerspectiveCamera(35, 1.55, 0.1, 100),
+        candidates,
+        random: seededRandom(seed),
+      });
+      draw.world.timestep = step;
+
+      try {
+        draw.turnWheel?.(0.63 * spin);
+        draw.start(spin);
+        const bodies = draw.world.bodies.getAll();
+        const ball = bodies.find(
+          (body) =>
+            body.numColliders() === 1 && body.collider(0).shapeType() === RAPIER.ShapeType.Ball,
+        );
+        const axle = bodies.find((body) => body !== ball && body.isKinematic());
+        if (!ball || !axle) throw new Error("공과 회전축이 필요합니다.");
+        const floor = axle.collider(0);
+        const ballCollider = ball.collider(0);
+        const previousPosition = new Vector3();
+        const position = new Vector3();
+        const inverseRotation = new Quaternion();
+        let firstContactFrame: number | undefined;
+        let movingFrames = 0;
+        let reboundStart: number | undefined;
+        let maxPocketRebound = 0;
+        let maxPocketLift = 0;
+        let result: DrawResult | undefined;
+
+        for (let frame = 0; frame < 30 / step && !result; frame++) {
+          draw.beforeStep?.(step);
+          const falling = ball.linvel().y < 0;
+          draw.world.step();
+          const verticalSpeed = ball.linvel().y;
+          const rebounded = falling && verticalSpeed >= 0;
+          position
+            .copy(ball.translation())
+            .applyQuaternion(inverseRotation.copy(axle.rotation()).invert());
+          const radius = Math.hypot(position.x, position.z);
+          if (firstContactFrame === undefined || rebounded) {
+            const touched = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded);
+            if (touched !== undefined) {
+              firstContactFrame ??= frame;
+              if (rebounded) reboundStart = previousPosition.y;
+            }
+          }
+          if (verticalSpeed <= 0) reboundStart = undefined;
+
+          if (firstContactFrame !== undefined) {
+            const travel = Math.hypot(
+              position.x - previousPosition.x,
+              position.z - previousPosition.z,
+            );
+            if (radius <= 3.15 && travel / step > 0.24) movingFrames++;
+            if (radius > pocketInner && radius < pocketOuter) {
+              if (reboundStart !== undefined) {
+                maxPocketRebound = Math.max(maxPocketRebound, position.y - reboundStart);
+              }
+              maxPocketLift = Math.max(
+                maxPocketLift,
+                position.y - ballRadius - pocketHeight(radius),
+              );
+            }
+          }
+
+          previousPosition.copy(position);
+          result = draw.afterStep(step);
+        }
+
+        expect(firstContactFrame).toBeDefined();
+        expect.soft(movingFrames * step).toBeGreaterThanOrEqual(5);
+        expect.soft(maxPocketRebound).toBeGreaterThan(0.04);
+        expect.soft(maxPocketLift).toBeLessThanOrEqual(0.27);
+        expect(result).toBeDefined();
+        expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
+      } finally {
+        draw.world.free();
+      }
+    },
+  );
+
+  it.each([
+    { spin: -1, seed: 924, reachesCone: true },
     { spin: 1, seed: 924, reachesCone: false },
   ])(
     "드래그 $spin 방향에서 처음 바닥에 닿은 포켓을 벗어나 다른 포켓에 안착한다",
