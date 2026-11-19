@@ -1,22 +1,32 @@
 :root {
   color-scheme: dark;
-  background: #08090c;
-  color: #f4f4f7;
+  background: #09090b;
+  color: #f5f5f7;
   font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+    system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
   font-synthesis: none;
-  --theater: #121318;
-  --surface: #14161d;
-  --input: #0f1016;
-  --rule: #2b2e38;
-  --field-line: #63677a;
-  --ink: #f4f4f7;
-  --secondary: #b2b4c2;
-  --accent: #b0b7f8;
-  --accent-hover: #c6ccff;
-  --accent-ink: #171a30;
-  --error: #f3abb4;
-  --frame-radius: 16px;
+  --theater: #171719;
+  --surface: #202023;
+  --surface-hover: #29292d;
+  --input: #141416;
+  --rule: #303035;
+  --field-line: #66676e;
+  --field-hover: #80818a;
+  --ink: #f5f5f7;
+  --secondary: #b8b8c0;
+  --quiet: #93939d;
+  --accent: #555ac7;
+  --accent-hover: #6268d6;
+  --accent-pressed: #4a50af;
+  --accent-ink: #ffffff;
+  --accent-text: #b9bbff;
+  --selected: #29283d;
+  --selected-line: #747099;
+  --error: #f4aab2;
+  --radius-sm: 6px;
+  --radius-control: 10px;
+  --frame-radius: 20px;
+  --control-transition: 140ms ease-out;
 }
 
 * {
@@ -37,14 +47,14 @@ button:disabled {
 }
 
 :where(button, textarea, summary):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-text);
   outline-offset: 3px;
 }
 
 .site-shell {
   width: min(100% - 64px, 1240px);
   margin-inline: auto;
-  padding-bottom: 36px;
+  padding-bottom: 40px;
 }
 
 .topbar {
@@ -52,7 +62,7 @@ button:disabled {
   min-height: 64px;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
   border-bottom: 1px solid var(--rule);
 }
 
@@ -65,9 +75,9 @@ button:disabled {
 
 .brand h1 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 620;
-  letter-spacing: -0.035em;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
 }
 
 .brand-mark {
@@ -75,16 +85,16 @@ button:disabled {
   width: 23px;
   height: 23px;
   place-items: center;
-  border: 1px solid #7d86be;
+  border: 1px solid #797981;
   border-radius: 50%;
-  background: repeating-conic-gradient(from 22.5deg, #151624 0 44deg, #717aa9 44deg 46deg);
+  background: repeating-conic-gradient(from 22.5deg, #1c1c20 0 44deg, #676770 44deg 46deg);
 }
 
 .brand-mark::after {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--accent-text);
   content: "";
 }
 
@@ -92,51 +102,76 @@ button:disabled {
   display: flex;
   align-items: stretch;
   align-self: stretch;
-  gap: clamp(16px, 2.5vw, 33px);
+  gap: 6px;
 }
 
 .mode-nav button {
   position: relative;
+  isolation: isolate;
   min-height: 44px;
-  padding: 0 2px;
+  padding: 0 14px;
   border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--secondary);
   font-size: 13px;
-  font-weight: 550;
+  font-weight: 560;
   white-space: nowrap;
+  transition: color var(--control-transition);
+}
+
+.mode-nav button::before {
+  position: absolute;
+  z-index: -1;
+  inset: 12px 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  content: "";
+  pointer-events: none;
+  transition:
+    background-color var(--control-transition),
+    border-color var(--control-transition);
 }
 
 .mode-nav button[aria-pressed="true"] {
-  color: var(--ink);
+  color: #dedcff;
+  font-weight: 630;
 }
-.mode-nav button[aria-pressed="true"]::after {
-  position: absolute;
-  inset: auto 0 -1px;
-  height: 2px;
-  border-radius: 1px;
-  background: var(--accent);
-  content: "";
+.mode-nav button[aria-pressed="true"]::before {
+  border-color: var(--selected-line);
+  background: var(--selected);
 }
 .mode-nav button:disabled {
-  color: #777b8d;
+  color: #777780;
+}
+
+.mode-nav button:focus-visible {
+  outline: none;
+}
+.mode-nav button:focus-visible::before {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 @media (hover: hover) {
   .mode-nav button[aria-pressed="false"]:hover:enabled {
     color: var(--ink);
   }
+  .mode-nav button[aria-pressed="false"]:hover:enabled::before {
+    background: var(--surface-hover);
+  }
 }
 
 .studio {
   --studio-gutter: clamp(24px, 3.6vw, 50px);
-  padding-top: clamp(20px, 3vw, 39px);
+  padding-top: clamp(20px, 2.7vw, 34px);
 }
 
 .draw-stage {
   overflow: clip;
   min-width: 0;
   border: 1px solid var(--rule);
+  border-top-color: #3c3c42;
   border-radius: var(--frame-radius);
   background: var(--theater);
 }
@@ -148,7 +183,7 @@ button:disabled {
     "controls scene" minmax(min-content, 1fr)
     / clamp(250px, 27%, 325px) minmax(0, 1fr);
   min-width: 0;
-  background: #101116;
+  background: var(--theater);
 }
 
 .mode-heading {
@@ -160,19 +195,19 @@ button:disabled {
 
 .mode-heading h2 {
   margin: 0;
-  font-size: clamp(33px, 3.6vw, 50px);
-  font-weight: 600;
-  letter-spacing: -0.058em;
-  line-height: 1.06;
+  font-size: clamp(32px, 3.3vw, 46px);
+  font-weight: 620;
+  letter-spacing: -0.042em;
+  line-height: 1.12;
   word-break: keep-all;
 }
 
 .mode-heading p {
   max-width: 21ch;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   color: var(--secondary);
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.6;
   word-break: keep-all;
 }
 
@@ -211,7 +246,7 @@ button:disabled {
   inset: 0 auto 0 0;
   width: 55%;
   border-radius: inherit;
-  background: var(--accent);
+  background: var(--accent-text);
   content: "";
   animation: loading-scene 950ms ease-in-out infinite alternate;
 }
@@ -231,9 +266,9 @@ button:disabled {
   flex-direction: column;
   align-self: start;
   align-items: flex-start;
-  gap: 15px;
+  gap: 12px;
   min-width: 0;
-  padding: 24px 14px 0 var(--studio-gutter);
+  padding: 20px 14px 0 var(--studio-gutter);
 }
 
 .stage-toolbar .draw-action {
@@ -248,9 +283,9 @@ button:disabled {
 .stage-status {
   display: flex;
   align-items: baseline;
-  gap: 9px;
-  color: var(--secondary);
-  font-size: 13px;
+  gap: 7px;
+  color: var(--quiet);
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -260,40 +295,49 @@ button:disabled {
   height: 6px;
   margin-bottom: 1px;
   border-radius: 50%;
-  background: #9396a7;
+  background: var(--quiet);
 }
 
 .stage-readout.active .status-light {
-  background: var(--accent);
+  background: var(--accent-text);
+}
+.stage-readout.active .stage-status {
+  color: var(--ink);
 }
 .error-status .status-light {
   background: var(--error);
+}
+.stage-status.error-status {
+  color: var(--error);
 }
 
 .draw-result {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 3px 11px;
+  gap: 4px 9px;
   min-width: 0;
 }
 
 .draw-result strong {
   min-width: 0;
-  font-size: clamp(21px, 2.6vw, 30px);
-  font-weight: 620;
-  letter-spacing: -0.035em;
-  line-height: 1.2;
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  line-height: 1.18;
   overflow-wrap: anywhere;
 }
 
 .result-label {
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--selected);
+  color: var(--accent-text);
+  font-size: 11px;
+  font-weight: 650;
 }
 .pocket-result {
-  color: var(--secondary);
+  color: var(--quiet);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
@@ -305,39 +349,49 @@ button:disabled {
 
 .draw-action {
   display: inline-flex;
-  min-width: 125px;
-  min-height: 44px;
+  min-width: 128px;
+  min-height: 46px;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding-inline: 14px;
-  border: 1px solid transparent;
-  border-radius: 8px;
+  padding-inline: 16px;
+  border: 1px solid #7376dc;
+  border-radius: var(--radius-control);
   background: var(--accent);
   color: var(--accent-ink);
-  font-size: 13px;
-  font-weight: 650;
+  font-size: 14px;
+  font-weight: 620;
   white-space: nowrap;
+  transition:
+    background-color var(--control-transition),
+    border-color var(--control-transition),
+    color var(--control-transition);
 }
 
 .draw-action:hover:enabled {
+  border-color: #898de9;
   background: var(--accent-hover);
 }
 .draw-action:active:enabled {
+  background: var(--accent-pressed);
   transform: translateY(1px);
 }
 .draw-action:disabled {
-  border-color: #474a59;
-  background: #2d303c;
-  color: var(--secondary);
+  border-color: #45454b;
+  background: #28282c;
+  color: var(--quiet);
 }
 .draw-action.stop-button {
   border-color: var(--field-line);
-  background: #22242d;
+  background: var(--surface);
   color: var(--ink);
 }
 .draw-action.stop-button:hover {
-  background: #2c2e39;
+  border-color: var(--field-hover);
+  background: var(--surface-hover);
+}
+.draw-action.stop-button:active {
+  background: var(--input);
 }
 
 .play-mark {
@@ -359,8 +413,8 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(132px, 164px) minmax(0, 520px);
   align-items: start;
-  gap: clamp(15px, 2vw, 25px);
-  margin-top: clamp(19px, 2.4vw, 30px);
+  gap: clamp(16px, 1.8vw, 24px);
+  margin-top: clamp(20px, 2.5vw, 32px);
   padding-inline: var(--studio-gutter);
 }
 
@@ -375,22 +429,25 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 9px;
+  gap: 4px 8px;
 }
 .field-heading label {
-  font-size: 16px;
-  font-weight: 620;
+  font-size: 15px;
+  font-weight: 650;
   letter-spacing: -0.015em;
 }
 .candidate-count {
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
 #candidate-hint {
-  margin: 7px 0 0;
-  color: var(--secondary);
+  margin: 8px 0 0;
+  color: var(--quiet);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -398,18 +455,26 @@ button:disabled {
 .control-panel textarea {
   display: block;
   width: 100%;
-  min-height: 128px;
-  padding: 9px 12px;
+  min-height: 136px;
+  padding: 10px 13px;
   resize: vertical;
   border: 1px solid var(--field-line);
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: var(--input);
   color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
+  transition:
+    border-color var(--control-transition),
+    background-color var(--control-transition);
+}
+
+.control-panel textarea:hover:not([readonly]):not([aria-invalid="true"]) {
+  border-color: var(--field-hover);
 }
 
 .control-panel textarea[readonly] {
+  background: var(--theater);
   color: var(--secondary);
 }
 .control-panel textarea[aria-invalid="true"] {
@@ -428,12 +493,15 @@ button:disabled {
   border-left: 1px solid var(--rule);
 }
 .round-details summary {
-  padding: 4px 0 7px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
   color: var(--secondary);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 560;
   cursor: pointer;
 }
 .round-details summary:hover {
+  background: var(--surface-hover);
   color: var(--ink);
 }
 
@@ -456,8 +524,8 @@ button:disabled {
 .entrant-number {
   display: grid;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   place-items: center;
   border-radius: 50%;
   color: #11111a;
@@ -498,6 +566,9 @@ button:disabled {
     min-height: 56px;
     gap: 12px;
   }
+  .mode-nav button::before {
+    inset-block: 8px;
+  }
   .studio {
     --studio-gutter: 18px;
   }
@@ -512,7 +583,7 @@ button:disabled {
     padding: 20px var(--studio-gutter) 0;
   }
   .mode-heading h2 {
-    font-size: clamp(27px, 5.5vw, 38px);
+    font-size: clamp(28px, 5.5vw, 38px);
     line-height: 1.12;
   }
   .mode-heading p {
@@ -535,6 +606,7 @@ button:disabled {
   }
   .stage-toolbar .draw-action {
     order: 0;
+    min-height: 44px;
   }
   .control-panel,
   .control-panel.with-mapping {
@@ -574,9 +646,10 @@ button:disabled {
     height: 20px;
   }
   .mode-nav {
-    gap: 14px;
+    gap: 4px;
   }
   .mode-nav button {
+    padding-inline: 9px;
     font-size: 12px;
   }
   .studio {
@@ -592,6 +665,12 @@ button:disabled {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .mode-nav button,
+  .mode-nav button::before,
+  .draw-action,
+  .control-panel textarea {
+    transition: none;
+  }
   .scene-loading::after {
     animation: none;
   }
