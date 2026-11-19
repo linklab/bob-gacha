@@ -296,6 +296,13 @@
   });
 </script>
 
+<!-- Pointer capture can end before the gesture. Keep tracking its pointer across the page. -->
+<svelte:window
+  onpointermovecapture={moveWheelDrag}
+  onpointerupcapture={releaseWheelDrag}
+  onpointercancelcapture={cancelWheelDrag}
+/>
+
 <div class="site-shell">
   <header class="topbar">
     <h1>Bob Gacha</h1>
@@ -320,10 +327,6 @@
       class:dragging-wheel={draggingWheel}
       data-wheel-draggable={canDragWheel ? "" : undefined}
       onpointerdown={startWheelDrag}
-      onpointermove={moveWheelDrag}
-      onpointerup={releaseWheelDrag}
-      onpointercancel={cancelWheelDrag}
-      onlostpointercapture={cancelWheelDrag}
     >
       <div class="scene-canvas" bind:this={viewport}></div>
       {#if canDragWheel && !draggingWheel}

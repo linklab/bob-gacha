@@ -1,4 +1,27 @@
 import { expect, test } from "@playwright/test";
+import type { Locator } from "@playwright/test";
+
+async function watchWheelCapture(wheel: Locator) {
+  await wheel.evaluate((element) => {
+    element.addEventListener(
+      "gotpointercapture",
+      (event) => {
+        if (event instanceof PointerEvent) {
+          element.setAttribute("data-test-pointer-id", String(event.pointerId));
+        }
+      },
+      { once: true },
+    );
+  });
+}
+
+async function dropWheelCapture(wheel: Locator) {
+  await wheel.evaluate((element) => {
+    const pointerId = Number(element.getAttribute("data-test-pointer-id"));
+    if (!element.hasPointerCapture(pointerId)) throw new Error("The wheel did not capture input");
+    element.releasePointerCapture(pointerId);
+  });
+}
 
 test("runs both 3D draws with the entered candidates", async ({ page }) => {
   test.setTimeout(90_000);
@@ -134,6 +157,29 @@ test("starts roulette with a drag on the wheel", async ({ page }) => {
   await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 30_000 });
 });
 
+test("starts roulette when a captured mouse drag is released outside the wheel", async ({
+  page,
+}) => {
+  await page.goto("./");
+  const view = page.locator(".scene-view");
+  const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
+  await expect(start).toBeEnabled();
+  const wheel = await view.boundingBox();
+  if (!wheel) throw new Error("The roulette wheel is missing");
+  const x = wheel.x + wheel.width / 2;
+  const y = wheel.y + wheel.height / 2;
+  await watchWheelCapture(view);
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 30, y);
+  await expect(view).toHaveClass(/dragging-wheel/);
+  await dropWheelCapture(view);
+  await page.mouse.move(x + 30, wheel.y - 10);
+  await expect(start).toBeEnabled();
+  await page.mouse.up();
+  await expect(page.getByRole("button", { name: "중지", exact: true })).toBeEnabled();
+});
+
 test.describe("mobile roulette", () => {
   test.use({ viewport: { width: 320, height: 640 }, isMobile: true, hasTouch: true });
 
@@ -147,12 +193,19 @@ test.describe("mobile roulette", () => {
     const x = Math.round(wheel.x + wheel.width / 2);
     const y = Math.round(wheel.y + wheel.height / 2);
     const touch = await page.context().newCDPSession(page);
+    await watchWheelCapture(view);
     await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
     await touch.send("Input.dispatchTouchEvent", {
       type: "touchMove",
       touchPoints: [{ x: x + 8, y }],
     });
     await expect(view).toHaveClass(/dragging-wheel/);
+    await expect(start).toBeEnabled();
+    await dropWheelCapture(view);
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: x + 8, y: Math.ceil(wheel.y + wheel.height + 10) }],
+    });
     await expect(start).toBeEnabled();
     await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     await expect(page.getByRole("button", { name: "중지", exact: true })).toBeEnabled();
