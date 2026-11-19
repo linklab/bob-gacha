@@ -30,4 +30,4 @@ mise exec -- pnpm dev
 
 ## 당첨 효과음
 
-룰렛과 구슬 경주의 당첨 효과음은 [Fupi의 Win Jingle (WinBrass)](https://opengameart.org/content/win-jingle)와 [dr_skitz의 yay](https://freesound.org/people/dr_skitz/sounds/353923/)를 동시에 재생하도록 편집한 것입니다. 두 원본은 모두 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/deed.ko)입니다.
+룰렛과 구슬 경주는 직접 합성한 당첨 효과음을 사용합니다. 음이 올라간 뒤 0.26초에 이름과 빛이 나타나는 타격음이 울리고, 이어 높은 차임이 잦아듭니다.

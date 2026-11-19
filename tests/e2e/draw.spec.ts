@@ -74,6 +74,12 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect
     .poll(() => result.evaluate((element) => element.getAnimations({ subtree: true }).length))
     .toBeGreaterThan(0);
+  const revealDelay = await result.locator(".winner").evaluate((element) => {
+    const [reveal] = element.getAnimations();
+    return reveal?.effect?.getTiming().delay ?? 0;
+  });
+  expect(revealDelay).toBeGreaterThanOrEqual(180);
+  expect(revealDelay).toBeLessThan(350);
   await expect(result.locator(".pocket-result")).toHaveText(/\d+번 포켓/);
   await expect(page.locator("html")).toHaveAttribute("data-celebrations", "1");
   expect(await again.evaluate((element, initial) => element === initial, actionElement)).toBe(true);
