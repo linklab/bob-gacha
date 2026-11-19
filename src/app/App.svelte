@@ -1,5 +1,6 @@
 <script lang="ts">
   import { flushSync, onMount } from "svelte";
+  import type { Vector2 } from "three";
 
   import type { Candidate, DrawMode, DrawResult, DrawScene } from "../lib/draw";
   import type { DrawPlayer } from "../lib/draw-player";
@@ -22,17 +23,20 @@
   ];
   const maxCandidates = colors.length;
   const previewLimit = 3;
-  const minimumWheelDrag = 0.12;
-  const fullSpeed = 8;
+  const swipeRadius = 1.6;
+  const fullSpeed = 4.8;
 
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
 
   interface WheelDrag {
     pointerId: number;
-    angle: number | undefined;
+    clientX: number;
+    clientY: number;
+    swipeAxis?: Vector2;
     lastAt: number;
     rotation: number;
     velocity: number;
+    direction: number;
     active: boolean;
   }
 
@@ -172,15 +176,21 @@
 
   function startWheelDrag(event: PointerEvent) {
     if (!canDragWheel || wheelDrag || !event.isPrimary || event.button !== 0) return;
-    const angle = player?.wheelAngleAt(event.clientX, event.clientY, true);
-    if (angle === undefined || !(event.currentTarget instanceof HTMLElement)) return;
+    if (
+      !(event.currentTarget instanceof HTMLElement) ||
+      !player?.wheelPointAt(event.clientX, event.clientY, true)
+    ) {
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     wheelDrag = {
       pointerId: event.pointerId,
-      angle,
+      clientX: event.clientX,
+      clientY: event.clientY,
       lastAt: event.timeStamp,
       rotation: 0,
       velocity: 0,
+      direction: 0,
       active: false,
     };
   }
@@ -188,28 +198,45 @@
   function moveWheelDrag(event: PointerEvent) {
     const drag = wheelDrag;
     if (!drag || drag.pointerId !== event.pointerId || !player) return;
-    const angle = player.wheelAngleAt(event.clientX, event.clientY);
-    const previousAngle = drag.angle;
-    drag.angle = angle;
-    if (angle === undefined || previousAngle === undefined) return;
+    if (event.clientX === drag.clientX && event.clientY === drag.clientY) return;
+    if (!drag.active && phase !== "ready") resetRound();
+    if (phase !== "ready") return;
 
-    const delta = Math.atan2(Math.sin(angle - previousAngle), Math.cos(angle - previousAngle));
-    const dt = Math.max((event.timeStamp - drag.lastAt) / 1000, 0.008);
-    drag.lastAt = event.timeStamp;
-    drag.velocity += (delta / dt - drag.velocity) * (1 - Math.exp(-dt / 0.055));
-    drag.rotation += delta;
+    const previous = player.wheelPointAt(drag.clientX, drag.clientY);
+    const point = player.wheelPointAt(event.clientX, event.clientY);
+    drag.clientX = event.clientX;
+    drag.clientY = event.clientY;
+    if (!point || !previous) return;
 
-    if (drag.active) {
-      player.turnWheel(delta);
-    } else if (Math.abs(drag.rotation) >= minimumWheelDrag) {
-      if (phase !== "ready") {
-        resetRound();
-        drag.angle = player.wheelAngleAt(event.clientX, event.clientY);
-      }
-      if (phase !== "ready") return;
-      drag.active = draggingWheel = true;
-      player.turnWheel(drag.rotation);
+    const travel = point.clone().sub(previous);
+    const distance = travel.length();
+    if (distance === 0) return;
+    const radius = previous.length();
+    const arc = Math.atan2(previous.cross(point), previous.dot(point));
+    if (!drag.active && (radius < swipeRadius || Math.abs(arc) * radius < distance * 0.35)) {
+      // A straight pull has no orbital angle. Use its starting axis so pulling back reverses it.
+      const axisDirection = Math.sign(
+        Math.abs(travel.x) >= Math.abs(travel.y) ? travel.x : travel.y,
+      );
+      drag.swipeAxis = travel
+        .clone()
+        .multiplyScalar(axisDirection / (distance * Math.max(radius, swipeRadius)));
     }
+    const delta =
+      drag.swipeAxis ?
+        travel.dot(drag.swipeAxis)
+      : arc * Math.min(1, radius / swipeRadius, point.length() / swipeRadius);
+    if (delta === 0) return;
+
+    const dt = Math.max((event.timeStamp - drag.lastAt) / 1000, 0.008);
+    const direction = Math.sign(delta);
+    if (drag.direction !== direction) drag.velocity = 0;
+    drag.direction = direction;
+    drag.lastAt = event.timeStamp;
+    drag.velocity += (delta / dt - drag.velocity) * (1 - Math.exp(-dt / 0.035));
+    drag.rotation += delta;
+    drag.active = draggingWheel = true;
+    player.turnWheel(delta);
   }
 
   function releaseWheelDrag(event: PointerEvent) {
@@ -218,11 +245,10 @@
     wheelDrag = undefined;
     draggingWheel = false;
     if (!drag.active || phase !== "ready") return;
-    const pause = Math.max(0, event.timeStamp - drag.lastAt - 30);
-    const velocity = drag.velocity * Math.exp(-pause / 95);
-    const direction = Math.sign(Math.abs(velocity) > 0.15 ? velocity : drag.rotation);
-    const power = Math.min(Math.abs(velocity) / fullSpeed, 1);
-    startRound(direction * power);
+    const pause = Math.max(0, event.timeStamp - drag.lastAt - 35);
+    const speed = Math.abs(drag.velocity) * Math.exp(-pause / 85);
+    const power = Math.min(speed / fullSpeed, 1);
+    startRound(drag.direction * Math.max(power, 0.001));
   }
 
   function cancelWheelDrag(event?: PointerEvent) {
@@ -301,7 +327,7 @@
     >
       <div class="scene-canvas" bind:this={viewport}></div>
       {#if canDragWheel && !draggingWheel}
-        <span class="wheel-hint">휠을 드래그해 돌리기</span>
+        <span class="wheel-hint">휠을 끌었다 놓아 돌리기</span>
       {/if}
     </div>
 

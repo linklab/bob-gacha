@@ -103,10 +103,24 @@ test("starts roulette with a drag on the wheel", async ({ page }) => {
   const centerX = wheel.x + wheel.width / 2;
   const centerY = wheel.y + wheel.height / 2;
   const radius = wheel.height * 0.34;
+  const view = page.locator(".scene-view");
+  await page.mouse.click(centerX, centerY);
+  await expect(start).toBeEnabled();
+  await page.mouse.move(centerX, centerY);
+  await page.mouse.down();
+  await page.mouse.move(centerX + 8, centerY);
+  await expect(view).toHaveClass(/dragging-wheel/);
+  await page.mouse.up();
+  await expect(stop).toBeEnabled();
+  await stop.click();
+  await expect(start).toBeEnabled();
+
   await page.mouse.click(centerX + radius, centerY);
   await expect(start).toBeEnabled();
   await page.mouse.move(centerX + radius, centerY);
   await page.mouse.down();
+  await page.mouse.move(centerX + radius, centerY + 8);
+  await expect(view).toHaveClass(/dragging-wheel/);
   for (let step = 1; step <= 8; step++) {
     const angle = (step * Math.PI) / 12;
     await page.mouse.move(
@@ -118,6 +132,31 @@ test("starts roulette with a drag on the wheel", async ({ page }) => {
   await page.mouse.up();
   await expect(stop).toBeEnabled();
   await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 30_000 });
+});
+
+test.describe("mobile roulette", () => {
+  test.use({ viewport: { width: 320, height: 640 }, isMobile: true, hasTouch: true });
+
+  test("follows a touch from the center before the spin starts", async ({ page }) => {
+    await page.goto("./");
+    const view = page.locator(".scene-view");
+    const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
+    await expect(start).toBeEnabled();
+    const wheel = await view.boundingBox();
+    if (!wheel) throw new Error("The roulette wheel is missing");
+    const x = Math.round(wheel.x + wheel.width / 2);
+    const y = Math.round(wheel.y + wheel.height / 2);
+    const touch = await page.context().newCDPSession(page);
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: x + 8, y }],
+    });
+    await expect(view).toHaveClass(/dragging-wheel/);
+    await expect(start).toBeEnabled();
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await expect(page.getByRole("button", { name: "중지", exact: true })).toBeEnabled();
+  });
 });
 
 test("validates candidate drafts and discards unconfirmed changes", async ({ page }) => {

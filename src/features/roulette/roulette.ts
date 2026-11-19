@@ -337,7 +337,7 @@ export const createRouletteScene: CreateDrawScene = ({
         rotorSpeed = MathUtils.lerp(1.82, 2.35, random());
       } else {
         rotorSpeed =
-          (Math.sign(spin) || 1) * MathUtils.lerp(1.55, 3.12, Math.min(Math.abs(spin), 1));
+          (Math.sign(spin) || 1) * MathUtils.lerp(0.84, 3.12, Math.min(Math.abs(spin), 1));
       }
       setWheelAngle();
 

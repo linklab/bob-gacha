@@ -243,9 +243,9 @@ describe("룰렛", () => {
     }
 
     expect(motion(-1)).toBeLessThan(0);
-    const gentle = motion(0.2);
+    const gentle = motion(0.15);
     expect(gentle).toBeGreaterThan(0);
-    expect(motion(1)).toBeGreaterThan(gentle * 1.2);
+    expect(motion(1)).toBeGreaterThan(gentle * 2.5);
   });
 
   it.each([

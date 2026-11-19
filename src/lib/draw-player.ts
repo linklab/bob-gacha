@@ -53,7 +53,7 @@ interface Round {
 
 export interface DrawPlayer {
   start(candidates: readonly Candidate[], spin?: number): DrawScene["assignments"];
-  wheelAngleAt(clientX: number, clientY: number, requireRim?: boolean): number | undefined;
+  wheelPointAt(clientX: number, clientY: number, insideWheel?: boolean): Vector2 | undefined;
   turnWheel(delta: number): void;
   reverseSpinner(): boolean;
   reset(candidates: readonly Candidate[]): void;
@@ -217,7 +217,7 @@ export function createDrawPlayer(
       animationFrame = requestAnimationFrame(tick);
       return round.simulation.assignments;
     },
-    wheelAngleAt(clientX, clientY, requireRim = false) {
+    wheelPointAt(clientX, clientY, insideWheel = false) {
       if (!round?.simulation.turnWheel) return;
       const rect = renderer.domElement.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
@@ -227,9 +227,8 @@ export function createDrawPlayer(
       );
       wheelRay.setFromCamera(pointer, round.camera);
       if (!wheelRay.ray.intersectPlane(wheelPlane, hit)) return;
-      const radius = Math.hypot(hit.x, hit.z);
-      if (radius < 1.1 || (requireRim && radius > 4.6)) return;
-      return Math.atan2(-hit.z, hit.x);
+      if (insideWheel && Math.hypot(hit.x, hit.z) > 4.6) return;
+      return new Vector2(hit.x, -hit.z);
     },
     turnWheel(delta) {
       if (started || !round?.simulation.turnWheel) return;
