@@ -8,15 +8,11 @@
   const modes = {
     roulette: {
       title: "카지노 룰렛",
-      description: "공이 안착한 포켓에 배정된 후보가 당첨됩니다.",
       action: "룰렛 돌리기",
-      running: "룰렛이 돌고 있습니다",
     },
     race: {
       title: "구슬 경주",
-      description: "장애물을 지나 결승선을 가장 먼저 통과한 구슬이 당첨됩니다.",
       action: "경주 시작",
-      running: "구슬이 달리고 있습니다",
     },
   };
   const modeIds = ["roulette", "race"] as const;
@@ -25,6 +21,7 @@
     "#a8d750", "#52d4cd", "#899eff", "#e68e59", "#e6dd85", "#c2d1d6",
   ];
   const maxCandidates = colors.length;
+  const previewLimit = 3;
 
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
 
@@ -52,6 +49,8 @@
     : "",
   );
   const settings = $derived(modes[mode]);
+  const candidatePreview = $derived(candidateNames.slice(0, previewLimit).join(" · "));
+  const hiddenCandidates = $derived(candidateNames.length - previewLimit);
   const isRunning = $derived(phase === "running");
   const action = $derived(
     isRunning ? "중지"
@@ -59,13 +58,6 @@
     : phase === "finished" || phase === "failed" ? "다시 뽑기"
     : settings.action,
   );
-  const stageStatus = $derived(
-    isRunning ? settings.running
-    : message ? message
-    : phase === "loading" ? "장면 불러오는 중"
-    : "준비 완료",
-  );
-
   async function showMode(next: DrawMode) {
     const host = viewport;
     if (!host) return;
@@ -179,53 +171,56 @@
 
 <div class="site-shell">
   <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark" aria-hidden="true"></span>
-      <h1>Bob Gacha</h1>
-    </div>
+    <h1>Bob Gacha</h1>
+    <nav class="mode-nav" aria-label="뽑기 방식">
+      {#each modeIds as id (id)}
+        <button
+          type="button"
+          aria-pressed={mode === id}
+          aria-controls="draw-stage"
+          disabled={isRunning && mode !== id}
+          onclick={() => { if (mode !== id) void showMode(id); }}
+        >{modes[id].title}</button>
+      {/each}
+    </nav>
   </header>
 
-  <main class="workspace">
-    <section class="draw-stage" data-mode={mode} aria-labelledby="mode-title">
-      <nav class="mode-nav" aria-label="뽑기 방식">
-        {#each modeIds as id (id)}
-          <button
-            type="button"
-            aria-pressed={mode === id}
-            aria-controls="draw-view"
-            disabled={isRunning && mode !== id}
-            onclick={() => { if (mode !== id) void showMode(id); }}
-          >{modes[id].title}</button>
-        {/each}
-      </nav>
-      <header class="mode-heading">
-        <h2 id="mode-title">{settings.title}</h2>
-        <p>{settings.description}</p>
-      </header>
+  <main class="draw-stage" id="draw-stage" data-mode={mode} aria-label={settings.title}>
+    <div class="scene-view">
+      <div class="scene-canvas" bind:this={viewport}></div>
+    </div>
 
-      <div class="scene-view" id="draw-view">
-        <div class="scene-canvas" bind:this={viewport}></div>
-        {#if phase === "loading"}
-          <span class="scene-loading" aria-hidden="true"></span>
+    <div class="draw-controls">
+      <div class="candidate-line">
+        {#if mode === "roulette"}
+          <p class="candidate-summary">
+            <span>{candidatePreview}</span>{#if hiddenCandidates > 0}
+              <span>{` 외 ${hiddenCandidates}개`}</span>
+            {/if}
+          </p>
         {/if}
+        <button
+          class="button-secondary"
+          type="button"
+          aria-label="후보 편집"
+          disabled={isRunning}
+          onclick={openEditor}
+        >{mode === "race" ? "후보 편집" : "편집"}</button>
       </div>
-    </section>
 
-    <div class="stage-toolbar">
-      <div class="stage-readout" aria-live="polite" aria-atomic="true">
+      <div class="round-feedback" aria-live="polite" aria-atomic="true">
         {#if result}
           <div class="draw-result" data-testid="draw-result">
-            <span class="result-label">당첨</span>
             <strong>{result.candidate.name}</strong>
+            <span class="result-label">당첨</span>
             <span class="pocket-result">
               {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
             </span>
           </div>
-        {:else}
-          <span class="stage-status" class:active={isRunning} class:error-status={!!message}>
-            <span class="status-light" aria-hidden="true"></span>
-            {stageStatus}
-          </span>
+        {:else if message}
+          <p class="error-message">{message}</p>
+        {:else if phase === "loading"}
+          <p class="loading-message">장면 불러오는 중</p>
         {/if}
       </div>
 
@@ -234,49 +229,33 @@
         type="button"
         disabled={phase === "loading"}
         onclick={handleControl}
-      >
-        <span class="action-symbol" aria-hidden="true">
-          {#if isRunning}
-            <span class="stop-mark"></span>
-          {:else if phase === "unavailable"}
-            <span class="reload-mark">↻</span>
-          {:else}
-            <span class="play-mark"></span>
-          {/if}
-        </span>
-        {action}
-      </button>
+      >{action}</button>
     </div>
 
-    <aside class="control-panel" aria-labelledby="candidate-title">
-      <div class="panel-heading">
-        <div class="candidate-heading">
-          <h2 id="candidate-title">후보</h2>
-          <span class="candidate-count">{candidates.length}개</span>
-        </div>
-        <button class="button-secondary" type="button" disabled={isRunning} onclick={openEditor}>
-          후보 편집
-        </button>
-      </div>
-      {#if assignments}
-        <p class="roster-context">{result ? "직전 포켓 배정" : "포켓 배정"}</p>
-      {/if}
-      <ul class="entrants" aria-label={mode === "race" ? "구슬 번호와 후보" : "후보 목록"}>
+    {#if mode === "race"}
+      <ul class="race-entrants" aria-label="구슬 번호와 후보">
         {#each candidates as candidate (candidate.id)}
           <li class:winner={result?.candidate.id === candidate.id}>
-            <div class="entrant-identity">
-              {#if mode === "race"}
-                <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
-              {/if}
-              <span class="entrant-name">{candidate.name}</span>
-            </div>
-            {#if assignments}
-              <span class="entrant-pockets">{assignments.get(candidate.id)?.join(", ")}</span>
-            {/if}
+            <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
+            <span class="entrant-name">{candidate.name}</span>
           </li>
         {/each}
       </ul>
-    </aside>
+    {:else if assignments}
+      {#key assignments}
+        <details class="pocket-assignments">
+          <summary>포켓 배정 보기</summary>
+          <ul>
+            {#each candidates as candidate (candidate.id)}
+              <li class:winner={result?.candidate.id === candidate.id}>
+                <span class="entrant-name">{candidate.name}</span>
+                <span class="entrant-pockets">{assignments.get(candidate.id)?.join(", ")}</span>
+              </li>
+            {/each}
+          </ul>
+        </details>
+      {/key}
+    {/if}
   </main>
 </div>
 
@@ -286,9 +265,9 @@
       <h2 id="editor-title">후보 편집</h2>
       <p id="candidate-hint">한 줄에 하나씩, 2–{maxCandidates}개를 입력하세요.</p>
     </header>
-    <label class="editor-label" for="candidate-draft">후보 이름</label>
     <textarea
       id="candidate-draft"
+      aria-label="후보 이름"
       rows="6"
       spellcheck="false"
       autocapitalize="off"

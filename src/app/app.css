@@ -47,79 +47,39 @@ button:disabled {
   cursor: default;
 }
 
-:where(button, textarea):focus-visible {
+:where(button, summary, textarea):focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 3px;
 }
 
 .site-shell {
-  width: min(100%, 1680px);
+  width: min(100%, 1240px);
   margin-inline: auto;
   padding-inline: var(--space-2);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 }
 
 .topbar {
   display: flex;
   min-height: 56px;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   padding-inline: var(--space-4);
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.brand h1 {
+.topbar h1 {
   margin: 0;
   font-size: 17px;
   font-weight: 750;
   letter-spacing: -0.03em;
-}
-
-.brand-mark {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  place-items: center;
-  border: 1px solid #777;
-  border-radius: 50%;
-  background: repeating-conic-gradient(from 22.5deg, #202020 0 43deg, #777 43deg 46deg);
-}
-
-.brand-mark::after {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ink);
-  content: "";
-}
-
-.workspace {
-  display: grid;
-  min-height: calc(100svh - 56px);
-  grid-template: "stage roster" 1fr "transport transport" auto / minmax(0, 1fr) clamp(
-      244px,
-      23vw,
-      320px
-    );
-  gap: var(--space-2);
-}
-
-.draw-stage,
-.control-panel {
-  min-width: 0;
-  border-radius: var(--radius-panel);
-  background-color: var(--panel);
+  white-space: nowrap;
 }
 
 .draw-stage {
-  --stage-padding: clamp(16px, 2.4vw, 36px);
-  grid-area: stage;
-  display: flex;
-  flex-direction: column;
-  padding: var(--space-5) var(--stage-padding) var(--stage-padding);
+  padding: var(--space-4) clamp(16px, 2.4vw, 36px);
+  border-radius: var(--radius-panel);
+  background-color: var(--panel);
   background-image: linear-gradient(
     180deg,
     var(--scene-tone),
@@ -166,33 +126,10 @@ button:disabled {
   opacity: 0.5;
 }
 
-.mode-heading {
-  margin: var(--space-5) 0 var(--space-4);
-}
-
-.mode-heading h2 {
-  margin: 0;
-  font-size: clamp(26px, 2.6vw, 38px);
-  font-weight: 750;
-  letter-spacing: -0.042em;
-  line-height: 1.15;
-  word-break: keep-all;
-}
-
-.mode-heading p {
-  margin: var(--space-2) 0 0;
-  color: var(--muted);
-  font-size: 14px;
-  word-break: keep-all;
-}
-
 .scene-view {
   position: relative;
-  display: grid;
-  min-height: clamp(282px, 48svh, 500px);
-  flex: 1;
+  height: clamp(282px, 70svh, 690px);
   overflow: clip;
-  place-items: center;
   border-radius: var(--radius-panel);
 }
 
@@ -207,81 +144,58 @@ button:disabled {
   height: 100%;
 }
 
-.scene-loading {
-  position: relative;
-  overflow: hidden;
-  width: 40px;
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-hover);
-}
-
-.scene-loading::after {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 55%;
-  border-radius: inherit;
-  background: var(--accent);
-  content: "";
-  animation: loading-scene 950ms ease-in-out infinite alternate;
-}
-
-@keyframes loading-scene {
-  from {
-    transform: translateX(-16%);
-  }
-  to {
-    transform: translateX(100%);
-  }
-}
-
-.stage-toolbar {
+.draw-controls {
   display: grid;
-  min-height: 80px;
-  grid-area: transport;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template: "candidates feedback action" / minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4) max(var(--space-2), env(safe-area-inset-bottom));
-  background: #000;
+  column-gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 
-.stage-readout {
-  min-width: 0;
-}
-
-.stage-status {
+.candidate-line {
   display: flex;
-  align-items: baseline;
+  min-width: 0;
+  grid-area: candidates;
+  align-items: center;
   gap: var(--space-2);
+}
+
+.candidate-summary {
+  display: flex;
+  min-width: 0;
+  gap: var(--space-1);
+  margin: 0;
   color: var(--muted);
+  white-space: nowrap;
+}
+
+.candidate-summary span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.round-feedback {
+  min-width: 0;
+  max-width: min(42vw, 440px);
+  grid-area: feedback;
+}
+
+.round-feedback > * {
+  margin: 0;
+}
+
+.error-message,
+.loading-message {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
 
-.status-light {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  margin-bottom: 1px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.stage-status.active {
-  color: var(--ink);
-}
-
-.stage-status.active .status-light {
-  background: var(--accent);
-}
-
-.error-status {
+.error-message {
   color: var(--negative);
 }
 
-.error-status .status-light {
-  background: var(--negative);
+.loading-message {
+  color: var(--muted);
 }
 
 .draw-result {
@@ -324,46 +238,10 @@ button:disabled {
 }
 
 .draw-action {
-  display: grid;
+  grid-area: action;
   align-self: start;
-  justify-items: center;
-  gap: var(--space-1);
-  padding: 0 var(--space-2);
-  background: transparent;
-  color: var(--ink);
-  font-size: 13px;
-}
-
-.action-symbol {
-  display: grid;
-  width: 40px;
-  height: 40px;
-  place-items: center;
-  border-radius: 50%;
   background: var(--ink);
   color: #000;
-  transition: transform 120ms ease-out;
-}
-
-.play-mark {
-  width: 0;
-  height: 0;
-  margin-left: 3px;
-  border: solid transparent;
-  border-width: 6px 0 6px 10px;
-  border-left-color: currentColor;
-}
-
-.stop-mark {
-  width: 10px;
-  height: 10px;
-  border-radius: 1px;
-  background: currentColor;
-}
-
-.reload-mark {
-  font-size: 19px;
-  line-height: 1;
 }
 
 .button-secondary {
@@ -389,8 +267,8 @@ button:disabled {
     background: var(--surface-hover);
   }
 
-  .draw-action:hover:enabled .action-symbol {
-    transform: scale(1.06);
+  .draw-action:hover:enabled {
+    background: #eaeaea;
   }
 
   .candidate-editor textarea:hover:not([aria-invalid="true"]) {
@@ -399,99 +277,41 @@ button:disabled {
 }
 
 .mode-nav button:active:enabled,
+.draw-action:active:enabled,
 .button-primary:active:enabled,
 .button-secondary:active:enabled {
   filter: brightness(0.9);
 }
 
-.draw-action:active:enabled .action-symbol {
-  background: #dedede;
-  transform: scale(0.96);
-}
-
+.draw-action:disabled,
 .button-primary:disabled,
 .button-secondary:disabled {
   background: var(--surface-raised);
   color: var(--disabled);
 }
 
-.draw-action:disabled {
-  color: var(--disabled);
-}
-
-.draw-action:disabled .action-symbol {
-  background: var(--surface-hover);
-  color: var(--disabled);
-}
-
-.control-panel {
-  grid-area: roster;
-  padding: var(--space-4);
-}
-
-.panel-heading,
-.candidate-heading {
+.race-entrants,
+.pocket-assignments ul {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.panel-heading {
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.candidate-heading {
-  align-items: baseline;
-}
-
-.candidate-heading h2 {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 750;
-  letter-spacing: -0.025em;
-}
-
-.panel-heading .button-secondary {
-  font-size: 13px;
-}
-
-.candidate-count {
-  color: var(--muted);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.roster-context {
-  margin: var(--space-3) var(--space-2) 0;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.entrants {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
   margin: var(--space-2) 0 0;
   padding: 0;
 }
 
-.entrants li {
-  display: grid;
-  min-height: 46px;
-  align-content: center;
-  gap: var(--space-1);
-  padding: var(--space-2);
+.race-entrants li {
+  display: flex;
+  max-width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-radius: 6px;
 }
 
-.entrants li.winner {
+.race-entrants .winner,
+.pocket-assignments .winner {
   background: var(--surface-raised);
   color: var(--accent);
-}
-
-.entrant-identity {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: var(--space-3);
 }
 
 .entrant-name {
@@ -502,14 +322,39 @@ button:disabled {
 .entrant-number {
   display: grid;
   flex: none;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 50%;
   color: #111;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 750;
   font-variant-numeric: tabular-nums;
+}
+
+.pocket-assignments {
+  margin-top: var(--space-2);
+}
+
+.pocket-assignments summary {
+  width: fit-content;
+  padding: var(--space-3) var(--space-2);
+  border-radius: var(--radius-panel);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.pocket-assignments ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr));
+  margin-top: 0;
+}
+
+.pocket-assignments li {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-radius: 6px;
 }
 
 .entrant-pockets {
@@ -545,13 +390,6 @@ button:disabled {
   margin: var(--space-1) 0 var(--space-4);
   color: var(--muted);
   font-size: 14px;
-}
-
-.editor-label {
-  display: block;
-  margin-bottom: var(--space-2);
-  font-size: 13px;
-  font-weight: 600;
 }
 
 .candidate-editor textarea {
@@ -595,11 +433,6 @@ button:disabled {
     aspect-ratio: 1.95;
     transform: translateY(-50%);
   }
-
-  .entrants {
-    max-height: max(320px, calc(100svh - 240px));
-    overflow-y: auto;
-  }
 }
 
 @media (max-width: 800px) {
@@ -607,49 +440,12 @@ button:disabled {
     max-width: 680px;
   }
 
-  .workspace {
-    min-height: auto;
-    grid-template: "stage" "transport" "roster" / minmax(0, 1fr);
-    padding-bottom: var(--space-2);
-  }
-
-  .draw-stage {
-    padding-top: var(--space-4);
-  }
-
   .mode-nav button {
     min-height: 44px;
   }
 
-  .mode-heading {
-    margin: var(--space-4) 0 var(--space-3);
-  }
-
-  .mode-heading p {
-    margin-top: var(--space-1);
-    font-size: 13px;
-  }
-
   .scene-view {
-    min-height: clamp(204px, min(74vw, 44svh), 400px);
-  }
-
-  .stage-toolbar {
-    min-height: 64px;
-    grid-template-columns: minmax(0, 1fr) auto;
-    padding: var(--space-1) var(--space-3);
-  }
-
-  .draw-action {
-    grid-auto-flow: column;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 0 var(--space-1);
-  }
-
-  .action-symbol {
-    width: 44px;
-    height: 44px;
+    height: clamp(204px, min(74vw, 46svh), 400px);
   }
 
   .candidate-editor textarea {
@@ -657,17 +453,31 @@ button:disabled {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .scene-loading::after {
-    animation: none;
+@media (max-width: 520px) {
+  .topbar {
+    padding-inline: var(--space-2);
   }
 
-  .action-symbol {
-    transition: none;
+  .draw-controls {
+    grid-template:
+      "candidates action"
+      "feedback  action"
+      / minmax(0, 1fr) auto;
   }
 
-  .draw-action:hover:enabled .action-symbol,
-  .draw-action:active:enabled .action-symbol {
-    transform: none;
+  .draw-stage[data-mode="roulette"] .draw-controls {
+    grid-template:
+      "candidates candidates"
+      "feedback action"
+      / minmax(0, 1fr) auto;
+    row-gap: var(--space-2);
+  }
+
+  .round-feedback {
+    max-width: none;
+  }
+
+  .draw-stage[data-mode="race"] .round-feedback > * {
+    margin-top: var(--space-1);
   }
 }
