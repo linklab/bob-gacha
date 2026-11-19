@@ -184,6 +184,27 @@ button[aria-disabled="true"] {
   height: 100%;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .scene-view.celebrating .scene-canvas {
+    animation: draw-impact 680ms var(--reward-impact) cubic-bezier(0.16, 0.72, 0.28, 1);
+  }
+}
+
+@keyframes draw-impact {
+  0% {
+    transform: scale(1);
+  }
+  12% {
+    transform: scale(1.055) translateY(1%);
+  }
+  45% {
+    transform: scale(1.021) translateY(-0.3%);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
 .draw-controls {
   display: grid;
   grid-template: "candidates feedback action" / minmax(0, 1fr) auto auto;

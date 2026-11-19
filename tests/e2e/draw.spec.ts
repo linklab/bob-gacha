@@ -78,8 +78,28 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
     const [reveal] = element.getAnimations();
     return reveal?.effect?.getTiming().delay ?? 0;
   });
-  expect(revealDelay).toBeGreaterThanOrEqual(180);
-  expect(revealDelay).toBeLessThan(350);
+  expect(revealDelay).toBeGreaterThanOrEqual(350);
+  expect(revealDelay).toBeLessThan(550);
+  const waveDelays = await result
+    .locator(".shockwave")
+    .evaluateAll((waves) =>
+      waves.map((wave) => wave.getAnimations()[0]?.effect?.getTiming().delay),
+    );
+  expect(waveDelays).toHaveLength(3);
+  expect(waveDelays[0]).toBe(revealDelay);
+  expect(waveDelays[1]).toBeGreaterThan(revealDelay + 300);
+  expect(waveDelays[2]).toBeGreaterThan(revealDelay + 700);
+  const ongoingEffects = await result.evaluate(
+    (element) =>
+      element
+        .getAnimations({ subtree: true })
+        .filter(
+          (animation) =>
+            animation.playState === "running" &&
+            animation.effect?.getTiming().iterations === Infinity,
+        ).length,
+  );
+  expect(ongoingEffects).toBeGreaterThan(1);
   await expect(result.locator(".pocket-result")).toHaveText(/\d+번 포켓/);
   await expect(page.locator("html")).toHaveAttribute("data-celebrations", "1");
   expect(await again.evaluate((element, initial) => element === initial, actionElement)).toBe(true);
@@ -306,13 +326,18 @@ test("plays roulette contacts, celebrates the result once, and remembers mute", 
   await expect.poll(audioState).toBe("running");
   expect((await sounds()).map(({ loop }) => loop)).toEqual([true, true]);
   await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 40_000 });
+  expect(
+    await page
+      .getByTestId("draw-result")
+      .evaluate((element) => element.getAnimations({ subtree: true }).length),
+  ).toBe(0);
   const oneShots = (await sounds()).filter(({ loop }) => !loop);
   const contacts = oneShots.slice(0, -1);
   expect(contacts.length).toBeGreaterThan(3);
   expect(Math.max(...contacts.map(({ seconds }) => seconds))).toBeLessThan(0.1);
   const celebration = oneShots[oneShots.length - 1];
-  expect(celebration?.seconds).toBeGreaterThan(0.5);
-  expect(celebration?.seconds).toBeLessThan(2);
+  expect(celebration?.seconds).toBeGreaterThan(3);
+  expect(celebration?.seconds).toBeLessThan(3.7);
   await expect.poll(audioState).toBe("suspended");
   await page.getByRole("button", { name: "다시 뽑기", exact: true }).click();
   await expect.poll(audioState).toBe("running");

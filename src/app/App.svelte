@@ -2,6 +2,7 @@
   import { flushSync, onMount } from "svelte";
   import type { Vector2 } from "three";
 
+  import rewardTiming from "../lib/audio/draw-win-timing.json";
   import type { Candidate, DrawMode, DrawResult, DrawScene } from "../lib/draw";
   import type { DrawPlayer } from "../lib/draw-player";
   import DrawCelebration from "./DrawCelebration.svelte";
@@ -345,6 +346,8 @@
       role="group"
       aria-label={mode === "roulette" ? "룰렛 휠" : "구슬 경주 트랙"}
       class:dragging-wheel={draggingWheel}
+      class:celebrating={!!result}
+      style:--reward-impact={`${rewardTiming.impactMs}ms`}
       data-wheel-draggable={canDragWheel ? "" : undefined}
       onpointerdown={startWheelDrag}
     >
