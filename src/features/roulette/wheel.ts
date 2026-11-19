@@ -18,13 +18,17 @@ import {
   SRGBColorSpace,
 } from "three";
 import type { Scene } from "three";
+import type { Candidate } from "../../lib/draw";
 
-export const pocketNumbers = [
-  0, 32, 15, 19, 4, 21, 2, 25, 17, 34, 6, 27, 13, 36, 11, 30, 8, 23, 10, 5, 24, 16, 33, 1, 20, 14,
-  31, 9, 22, 18, 29, 7, 28, 12, 35, 3, 26,
-] as const;
+export const pocketCount = 37;
 export const fullTurn = Math.PI * 2;
-export const pocketAngle = fullTurn / pocketNumbers.length;
+export const pocketAngle = fullTurn / pocketCount;
+
+export interface WheelSector {
+  candidate: Candidate;
+  firstPocket: number;
+  pastLastPocket: number;
+}
 
 export const ballRadius = 0.12;
 export const pocketInner = 1.91;
@@ -44,7 +48,7 @@ export const trackProfile = [
   [4.132, 1.046],
   [4.138, 1.498],
 ] as const;
-const numberBank = [
+const labelBank = [
   [pocketOuter, pocketFloor + pocketRise],
   [2.79, 0.402],
   [2.89, 0.414],
@@ -67,7 +71,7 @@ const rotorProfile = [
   [1.78, 0.381],
   [1.855, 0.376],
   ...pocketProfile,
-  ...numberBank,
+  ...labelBank,
 ] as const;
 export const crownProfile = [
   [0.001, 0.62],
@@ -81,7 +85,6 @@ export const crownProfile = [
 ] as const;
 
 const ivory = "#fff6e7";
-const tileColors = ["#147257", "#9e2c42", "#171a21"];
 const pocketCenter = (pocketInner + pocketOuter) / 2;
 
 type Profile = readonly (readonly [number, number])[];
@@ -135,7 +138,7 @@ export function radialSurface(
 }
 
 // A single surface lets the ball pass from the floor onto a fret without overlapping contacts.
-const rotorSegments = 16 * pocketNumbers.length;
+const rotorSegments = 16 * pocketCount;
 export const rotorGeometry = () =>
   radialSurface(rotorProfile, 0, fullTurn, rotorSegments, fretLift);
 
@@ -261,23 +264,41 @@ function makeStudioReflection() {
   return texture;
 }
 
-function makeNumberAtlas() {
+function fitLabel(context: CanvasRenderingContext2D, name: string, width: number) {
+  if (context.measureText(name).width <= width) return name;
+
+  const characters = Array.from(name);
+  let low = 0;
+  let high = characters.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    const shortened = `${characters.slice(0, middle).join("")}…`;
+    if (context.measureText(shortened).width <= width) low = middle;
+    else high = middle - 1;
+  }
+  return `${characters.slice(0, low).join("")}…`;
+}
+
+function makeCandidateAtlas(sectors: readonly WheelSector[]) {
   if (typeof document === "undefined") return undefined;
 
   const canvas = document.createElement("canvas");
-  const cell = 64;
-  canvas.width = cell * pocketNumbers.length;
-  canvas.height = cell;
-  const canvasContext = canvas.getContext("2d");
-  if (!canvasContext) return undefined;
+  const pixelsPerPocket = 55;
+  canvas.width = pixelsPerPocket * pocketCount;
+  canvas.height = 56;
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
 
-  canvasContext.font = "700 54px Arial, sans-serif";
-  canvasContext.textAlign = "center";
-  canvasContext.textBaseline = "middle";
-  canvasContext.fillStyle = ivory;
-  pocketNumbers.forEach((number, index) => {
-    canvasContext.fillText(String(number), (index + 0.5) * cell, cell * 0.52);
-  });
+  context.font =
+    '750 39px system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif';
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillStyle = ivory;
+  for (const { candidate, firstPocket, pastLastPocket } of sectors) {
+    const width = (pastLastPocket - firstPocket) * pixelsPerPocket;
+    const label = fitLabel(context, candidate.name, width - 28);
+    context.fillText(label, firstPocket * pixelsPerPocket + width / 2, canvas.height * 0.53);
+  }
 
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
@@ -289,41 +310,18 @@ function addPocket(
   parent: Group,
   index: number,
   surface: MeshStandardMaterial,
-  labelSurface: MeshBasicMaterial | undefined,
   floorGeometry: BufferGeometry,
-  tileGeometry: BufferGeometry,
 ) {
   const angle = index * pocketAngle;
   const pocket = new Group();
-  pocket.name = `roulette-pocket-${pocketNumbers[index]}`;
+  pocket.name = `roulette-pocket-${index}`;
   pocket.position.set(pocketCenter * Math.cos(angle), 0, pocketCenter * Math.sin(angle));
   pocket.rotation.y = -angle;
   parent.add(pocket);
-
   addMesh(pocket, floorGeometry, surface).position.x = -pocketCenter;
-  const tile = addMesh(pocket, tileGeometry, surface);
-  tile.position.x = -pocketCenter;
-
-  if (labelSurface) {
-    const labelGeometry = radialSurface(
-      numberBank.slice(1).map(([radius, height]) => [radius, height + 0.016]),
-      -pocketAngle * 0.477,
-      pocketAngle * 0.477,
-      6,
-    );
-    const uv = labelGeometry.getAttribute("uv");
-    for (let i = 0; i < uv.count; i++) {
-      uv.setX(i, (index + uv.getX(i)) / pocketNumbers.length);
-    }
-    const label = new Mesh(labelGeometry, labelSurface);
-    label.position.x = -pocketCenter;
-    pocket.add(label);
-  }
-
-  return tile;
 }
 
-export function createWheel(scene: Scene) {
+export function createWheel(scene: Scene, sectors: readonly WheelSector[]) {
   const room = new HemisphereLight("#e8edff", "#5e4951", 1.25);
   scene.add(room);
 
@@ -482,8 +480,7 @@ export function createWheel(scene: Scene) {
 
   addMesh(rotor, rotorGeometry(), darkBand);
 
-  const pocketMaterials = tileColors.map((color) => material(color, 0.72));
-  const atlas = makeNumberAtlas();
+  const atlas = makeCandidateAtlas(sectors);
   const labelSurface = atlas
     ? new MeshBasicMaterial({
         map: atlas,
@@ -494,33 +491,52 @@ export function createWheel(scene: Scene) {
       })
     : undefined;
   const floorGeometry = radialSurface(
-    [...pocketProfile, numberBank[0]],
+    [...pocketProfile, labelBank[0]],
     -pocketAngle * 0.5,
     pocketAngle * 0.5,
     16,
     (radius, angle) => 0.005 + fretLift(radius, angle),
   );
-  const tileGeometry = radialSurface(
-    numberBank,
-    -pocketAngle * 0.484,
-    pocketAngle * 0.484,
-    16,
-    (radius, angle) => 0.008 + fretLift(radius, angle),
-  );
   const divider = radialSurface(
-    [...pocketProfile, numberBank[0]],
+    [...pocketProfile, labelBank[0]],
     -pocketAngle * 0.1875,
     pocketAngle * 0.1875,
     6,
     (radius, angle) => 0.009 + fretLift(radius, angle + pocketAngle * 0.5),
   );
-  const tiles = pocketNumbers.map((_, index) => {
-    const surface = pocketMaterials[index === 0 ? 0 : 1 + ((index - 1) % 2)];
-    const tile = addPocket(rotor, index, surface, labelSurface, floorGeometry, tileGeometry);
-    const fret = addMesh(rotor, divider, paleBrass);
-    fret.rotation.y = -(index + 0.5) * pocketAngle;
-    fret.castShadow = true;
-    return tile;
+  const surfaces = sectors.map(({ candidate, firstPocket, pastLastPocket }) => {
+    const group = new Group();
+    group.name = `roulette-candidate-${candidate.id}`;
+    rotor.add(group);
+
+    const surface = material(candidate.color, 0.72);
+    surface.color.multiplyScalar(0.3);
+    for (let index = firstPocket; index < pastLastPocket; index++) {
+      addPocket(group, index, surface, floorGeometry);
+      const fret = addMesh(group, divider, paleBrass);
+      fret.rotation.y = -(index + 0.5) * pocketAngle;
+      fret.castShadow = true;
+    }
+
+    const start = (firstPocket - 0.5) * pocketAngle + 0.008;
+    const end = (pastLastPocket - 0.5) * pocketAngle - 0.008;
+    const segments = (pastLastPocket - firstPocket) * 16;
+    addMesh(
+      group,
+      radialSurface(labelBank, start, end, segments, () => 0.008),
+      surface,
+    );
+    if (labelSurface) {
+      const labelGeometry = radialSurface(labelBank, start, end, segments, () => 0.017);
+      const uv = labelGeometry.getAttribute("uv");
+      for (let index = 0; index < uv.count; index++) {
+        const fraction =
+          (firstPocket + uv.getX(index) * (pastLastPocket - firstPocket)) / pocketCount;
+        uv.setX(index, fraction);
+      }
+      group.add(new Mesh(labelGeometry, labelSurface));
+    }
+    return surface;
   });
 
   addRing(
@@ -598,13 +614,11 @@ export function createWheel(scene: Scene) {
   ball.name = "roulette-ball";
   ball.castShadow = true;
 
-  function highlightPocket(index: number) {
-    const tile = tiles[index];
-    const highlight = tile.material.clone();
-    highlight.emissive = new Color("#e8a865");
-    highlight.emissiveIntensity = 0.6;
-    tile.material = highlight;
+  function highlightSector(index: number) {
+    const surface = surfaces[index];
+    surface.emissive = new Color("#e8a865");
+    surface.emissiveIntensity = 0.55;
   }
 
-  return { rotor, ball, highlightPocket };
+  return { rotor, ball, highlightSector };
 }

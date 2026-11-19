@@ -10,15 +10,16 @@ import {
   deflectorRadius,
   fullTurn,
   pocketAngle,
+  pocketCount,
   pocketFloor,
   pocketInner,
-  pocketNumbers,
   pocketOuter,
   pocketRise,
   radialSurface,
   rotorGeometry,
   trackProfile,
 } from "./wheel";
+import type { WheelSector } from "./wheel";
 
 const launchRadius = 4.01;
 const launchHeight = 1.113;
@@ -35,16 +36,20 @@ const closeUpDelay = 0.24;
 const descentRestitution = 0.41;
 const up = new Vector3(0, 1, 0);
 
-function shuffledCandidates(candidates: readonly Candidate[], random: () => number) {
+function createSectors(candidates: readonly Candidate[], random: () => number): WheelSector[] {
   const shuffled = [...candidates];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const index = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[index]] = [shuffled[index], shuffled[i]];
   }
 
-  // A uniformly shuffled order gives each candidate the same chance at any pocket,
-  // including when 37 does not divide evenly by the number of candidates.
-  return pocketNumbers.map((_, index) => shuffled[index % shuffled.length]);
+  // Shuffling gives every candidate the same chance of getting an extra physical pocket.
+  const pocketsPerCandidate = pocketCount / shuffled.length;
+  return shuffled.map((candidate, index) => ({
+    candidate,
+    firstPocket: Math.round(index * pocketsPerCandidate),
+    pastLastPocket: Math.round((index + 1) * pocketsPerCandidate),
+  }));
 }
 
 function vertexPositions(geometry: BufferGeometry) {
@@ -59,7 +64,8 @@ export const createRouletteScene: CreateDrawScene = ({
   random,
   sound,
 }) => {
-  const { ball, rotor, highlightPocket } = createWheel(scene);
+  const sectors = createSectors(candidates, random);
+  const { ball, rotor, highlightSector } = createWheel(scene, sectors);
   const world = new rapier.World({ x: 0, y: -36, z: 0 });
   const axle = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased());
   const rotation = new Quaternion();
@@ -134,8 +140,6 @@ export const createRouletteScene: CreateDrawScene = ({
     body,
   );
 
-  const assignments = new Map<number, number[]>();
-  let candidateByPocket: Candidate[] = [];
   let active = false;
   let rotorAngle = 0;
   let rotorSpeed = 0;
@@ -327,7 +331,6 @@ export const createRouletteScene: CreateDrawScene = ({
 
   return {
     world,
-    assignments,
     resize(nextAspect) {
       aspect = nextAspect;
     },
@@ -337,14 +340,6 @@ export const createRouletteScene: CreateDrawScene = ({
       setWheelAngle();
     },
     start(spin) {
-      candidateByPocket = shuffledCandidates(candidates, random);
-      assignments.clear();
-      for (const [index, candidate] of candidateByPocket.entries()) {
-        const assigned = assignments.get(candidate.id) ?? [];
-        assigned.push(pocketNumbers[index]);
-        assignments.set(candidate.id, assigned);
-      }
-
       if (spin === undefined) {
         rotorAngle = random() * fullTurn;
         rotorSpeed = MathUtils.lerp(1.82, 2.35, random());
@@ -423,7 +418,7 @@ export const createRouletteScene: CreateDrawScene = ({
       onRotor ||= radius < 3.12;
       const sector = Math.atan2(z, x) / pocketAngle;
       const nearestPocket = Math.round(sector);
-      const pocket = MathUtils.euclideanModulo(nearestPocket, pocketNumbers.length);
+      const pocket = MathUtils.euclideanModulo(nearestPocket, pocketCount);
       const distanceToDivider = (0.5 - Math.abs(sector - nearestPocket)) * pocketAngle * radius;
 
       const withinPocket =
@@ -464,8 +459,9 @@ export const createRouletteScene: CreateDrawScene = ({
       if (settledTime < 0.68 || Math.abs(rotorSpeed) > 0.13) return undefined;
 
       active = false;
-      highlightPocket(pocket);
-      return { candidate: candidateByPocket[pocket], pocket: pocketNumbers[pocket] };
+      const winner = sectors.findIndex(({ pastLastPocket }) => pocket < pastLastPocket);
+      highlightSector(winner);
+      return { candidate: sectors[winner].candidate, pocketIndex: pocket };
     },
     render() {
       ball.position.copy(body.translation());

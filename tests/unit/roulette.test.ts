@@ -8,7 +8,7 @@ import {
   pocketAngle,
   pocketFloor,
   pocketInner,
-  pocketNumbers,
+  pocketCount,
   pocketOuter,
   pocketRise,
 } from "../../src/features/roulette/wheel";
@@ -58,7 +58,7 @@ function pocketAtFloorContact(
         manifold.contactImpulse(index) > 1e-6 || (upwardResponse && ballBottom <= floorY + 0.006);
       if (!allowRestingGap && !impact) continue;
       const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
-      pocket = pocketNumbers[MathUtils.euclideanModulo(sector, pocketNumbers.length)];
+      pocket = MathUtils.euclideanModulo(sector, pocketCount);
     }
   });
   return pocket;
@@ -78,19 +78,21 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
   try {
     let result: DrawResult | undefined;
     draw.start();
-    const assignments = draw.assignments;
-    if (!assignments) throw new Error("후보에게 배정된 포켓이 없습니다.");
-
-    const allocatedNumbers = Array.from(assignments.values()).reduce<number[]>(
-      (all, numbers) => all.concat(numbers),
-      [],
-    );
-    expect(allocatedNumbers.sort((a, b) => a - b)).toEqual(Array.from({ length: 37 }, (_, i) => i));
-    for (const entrant of entrants) {
-      const pocketCount = assignments.get(entrant.id)?.length ?? 0;
-      expect(pocketCount).toBeGreaterThanOrEqual(Math.floor(37 / entrants.length));
-      expect(pocketCount).toBeLessThanOrEqual(Math.ceil(37 / entrants.length));
-    }
+    const rotor = scene.getObjectByName("roulette-rotor");
+    if (!rotor) throw new Error("룰렛 휠을 찾을 수 없습니다.");
+    const sectors = entrants.map((entrant) => {
+      const sector = rotor.getObjectByName(`roulette-candidate-${entrant.id}`);
+      if (!sector) throw new Error("후보 구역을 찾을 수 없습니다.");
+      return sector;
+    });
+    const coveredPockets = sectors.reduce<string[]>((names, sector) => {
+      const pockets = sector.children.filter(({ name }) => name.startsWith("roulette-pocket-"));
+      expect(pockets.length).toBeGreaterThanOrEqual(Math.floor(pocketCount / entrants.length));
+      expect(pockets.length).toBeLessThanOrEqual(Math.ceil(pocketCount / entrants.length));
+      return names.concat(pockets.map(({ name }) => name));
+    }, []);
+    expect(new Set(coveredPockets).size).toBe(pocketCount);
+    expect(coveredPockets).toHaveLength(pocketCount);
 
     for (let frame = 1; frame <= roundLimit / step; frame++) {
       draw.beforeStep?.(step);
@@ -100,11 +102,9 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
       if (result) {
         draw.render();
         const ball = scene.getObjectByName("roulette-ball");
-        const rotor = scene.getObjectByName("roulette-rotor");
-        const pocket = rotor?.getObjectByName(`roulette-pocket-${result.pocket}`);
-        expect(assignments.get(result.candidate.id)).toContain(result.pocket);
-        if (!ball || !rotor || !pocket)
-          throw new Error("화면에서 공 또는 포켓을 찾을 수 없습니다.");
+        const pocket = rotor.getObjectByName(`roulette-pocket-${result.pocketIndex}`);
+        expect(pocket?.parent?.name).toBe(`roulette-candidate-${result.candidate.id}`);
+        if (!ball || !pocket) throw new Error("화면에서 공 또는 포켓을 찾을 수 없습니다.");
         scene.updateMatrixWorld(true);
         const localBall = rotor.worldToLocal(ball.position.clone());
         const pocketAngle = Math.atan2(pocket.position.z, pocket.position.x);
@@ -154,7 +154,7 @@ describe("룰렛", () => {
 
       // Seed 72 first settles around 17.58 seconds and moves again around 18.24 seconds.
       const heightAt = (time: number) => heights[Math.round(time / step)];
-      expect(result?.pocket).toBe(25);
+      expect(result?.pocketIndex).toBe(7);
       expect(heightAt(17.8)).toBeCloseTo(heightAt(17.5), 3);
       expect(heightAt(18.2)).toBeLessThan(heightAt(17.8) - 0.4);
       const closeUp = heights.slice(Math.round(17.8 / step));
@@ -272,8 +272,8 @@ describe("룰렛", () => {
     const entrants = candidates.slice(0, count);
     const { result, duration } = runDraw(entrants, seededRandom(seed));
     expect(entrants).toContain(result.candidate);
-    expect(result.pocket).toBeGreaterThanOrEqual(0);
-    expect(result.pocket).toBeLessThanOrEqual(36);
+    expect(result.pocketIndex).toBeGreaterThanOrEqual(0);
+    expect(result.pocketIndex).toBeLessThan(pocketCount);
     expect(duration).toBeGreaterThan(11);
     expect(duration).toBeLessThanOrEqual(roundLimit);
   });
@@ -454,7 +454,7 @@ describe("룰렛", () => {
         expect.soft(divider.rebound).toBeGreaterThan(0.04);
         expect.soft(crossedSectors.size).toBeGreaterThan(1);
         expect(result).toBeDefined();
-        expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
+        expect(candidates).toContain(result!.candidate);
       } finally {
         draw.world.free();
       }
@@ -567,7 +567,7 @@ describe("룰렛", () => {
         expect.soft(airborneFrames).toBeGreaterThan(0);
         expect.soft(maxAirborneVelocityChange).toBeLessThanOrEqual(1e-6);
         expect(result).toBeDefined();
-        expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
+        expect(candidates).toContain(result!.candidate);
       } finally {
         draw.world.free();
       }
@@ -647,13 +647,13 @@ describe("룰렛", () => {
 
         if (!result) throw new Error(`룰렛 공이 ${roundLimit}초 안에 포켓에 안착하지 않았습니다.`);
         expect(firstFloorPocket).toBeDefined();
-        expect(floorPocket).toBe(result.pocket);
-        expect(firstFloorPocket).not.toBe(result.pocket);
+        expect(floorPocket).toBe(result.pocketIndex);
+        expect(firstFloorPocket).not.toBe(result.pocketIndex);
         if (reachesCone) {
           expect(coneContactFrame).toBeDefined();
           expect(floorFrame).toBeGreaterThan(coneContactFrame!);
         }
-        expect(draw.assignments?.get(result.candidate.id)).toContain(result.pocket);
+        expect(candidates).toContain(result.candidate);
       } finally {
         draw.world.free();
       }
@@ -663,7 +663,7 @@ describe("룰렛", () => {
   it("같은 발사 조건에서 후보 순서가 달라져도 공은 같은 포켓에 안착한다", () => {
     const first = runDraw(candidates, seededRandom(500)).result;
     const second = runDraw([...candidates].reverse(), seededRandom(500)).result;
-    expect(second.pocket).toBe(first.pocket);
+    expect(second.pocketIndex).toBe(first.pocketIndex);
     expect(second.candidate.id).toBe(candidates.length - 1 - first.candidate.id);
   });
 });

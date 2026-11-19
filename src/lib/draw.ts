@@ -11,7 +11,7 @@ export interface Candidate {
 
 export interface DrawResult {
   candidate: Candidate;
-  pocket?: number;
+  pocketIndex?: number;
 }
 
 export type DrawImpact = "bumper" | "fret" | "bowl" | "cone";
@@ -33,7 +33,6 @@ export interface DrawSceneContext {
 
 export interface DrawScene {
   world: RAPIER.World;
-  assignments?: ReadonlyMap<number, readonly number[]>;
   start(spin?: number): void;
   turnWheel?(delta: number): void;
   canReverseSpinner?(): boolean;

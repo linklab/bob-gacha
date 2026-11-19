@@ -33,6 +33,19 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => {
     let celebrations = 0;
+    let labelCanvas: HTMLCanvasElement | undefined;
+    let labels: string[] = [];
+    const fillText = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (text, x, y, maxWidth) {
+      if (maxWidth === undefined) fillText.call(this, text, x, y);
+      else fillText.call(this, text, x, y, maxWidth);
+      if (labelCanvas !== this.canvas) {
+        labelCanvas = this.canvas;
+        labels = [];
+      }
+      labels.push(text);
+      document.documentElement.setAttribute("data-wheel-labels", JSON.stringify(labels));
+    };
     const start = AudioBufferSourceNode.prototype.start;
     AudioBufferSourceNode.prototype.start = function (when, offset, duration) {
       start.call(this, when, offset, duration);
@@ -46,18 +59,24 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   page.on("pageerror", (error) => pageErrors.push(error.message));
   await page.goto("./");
   await expect(page.getByRole("heading")).toHaveText("Bob Gacha");
+  const wheelLabels = async () => {
+    const labels = await page.locator("html").getAttribute("data-wheel-labels");
+    return (JSON.parse(labels ?? "[]") as string[]).sort();
+  };
+  await expect
+    .poll(wheelLabels)
+    .toEqual(["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"].sort());
   const summary = page.locator(".candidate-summary");
   await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
   const edit = page.getByRole("button", { name: /^후보 \d+개 · 편집$/ });
   const dialog = page.getByRole("dialog", { name: "후보 편집", exact: true });
   const apply = dialog.getByRole("button", { name: /^후보 \d+개 적용$/ });
-  const assignments = page.locator("details");
   const entrantList = page.getByRole("list", { name: "구슬 번호와 후보" });
   await edit.click();
   await replaceCandidates(dialog, names.join("\n"));
   await apply.click();
   await expect(summary).toHaveText("김밥 · 비빔밥 · 우동 외 1개");
-  await expect(assignments).toHaveCount(0);
+  await expect.poll(wheelLabels).toEqual([...names].sort());
   await expect(edit).toBeFocused();
 
   const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
@@ -66,9 +85,7 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   const actionElement = await start.elementHandle();
   await start.click();
   await expect(page.getByText("룰렛이 돌고 있습니다", { exact: true })).toHaveCount(0);
-  const toggleAssignments = page.getByText("포켓 배정 보기", { exact: true });
-  await expect(toggleAssignments).toBeVisible();
-  await expect(assignments).toHaveJSProperty("open", false);
+  await expect(page.getByText("포켓 배정 보기", { exact: true })).toHaveCount(0);
   await expect(stop).toBeFocused();
   expect(await stop.evaluate((element, initial) => element === initial, actionElement)).toBe(true);
   const result = page.getByTestId("draw-result");
@@ -105,18 +122,10 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
         ).length,
   );
   expect(ongoingEffects).toBeGreaterThan(1);
-  await expect(result.locator(".pocket-result")).toHaveText(/\d+번 포켓/);
+  await expect(result.locator(".pocket-result")).toHaveCount(0);
   await expect(page.locator("html")).toHaveAttribute("data-celebrations", "1");
   expect(await again.evaluate((element, initial) => element === initial, actionElement)).toBe(true);
-  const winner = await result.locator("strong").innerText();
-  const pocket = (await result.locator(".pocket-result").innerText()).match(/\d+/)?.[0];
-  await toggleAssignments.click();
-  const winnerPockets = await assignments
-    .locator("li")
-    .filter({ has: page.getByText(winner, { exact: true }) })
-    .locator(".entrant-pockets")
-    .innerText();
-  expect(winnerPockets.split(", ")).toContain(pocket);
+  expect(await wheelLabels()).toContain(await result.locator("strong").innerText());
 
   const finishedResult = (await result.innerText()).trim();
   await edit.click();
@@ -138,7 +147,6 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect(summary).toHaveText(`${raceNames.slice(0, 3).join(" · ")} 외 1개`);
   await expect(start).toBeEnabled();
   await expect(result).toHaveCount(0);
-  await expect(assignments).toHaveCount(0);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 320, height: 410 });
   await page.getByRole("button", { name: "구슬 경주", exact: true }).click();

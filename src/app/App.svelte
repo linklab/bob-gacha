@@ -3,7 +3,7 @@
   import type { Vector2 } from "three";
 
   import rewardTiming from "../lib/audio/draw-win-timing.json";
-  import type { Candidate, DrawMode, DrawResult, DrawScene } from "../lib/draw";
+  import type { Candidate, DrawMode, DrawResult } from "../lib/draw";
   import type { DrawPlayer } from "../lib/draw-player";
   import CandidateEditor from "./CandidateEditor.svelte";
   import DrawCelebration from "./DrawCelebration.svelte";
@@ -48,7 +48,6 @@
   let mode = $state<DrawMode>("roulette");
   let phase = $state<Phase>("loading");
   let result = $state<DrawResult>();
-  let assignments: DrawScene["assignments"] = $state.raw();
   let message = $state("");
   let spinnerAvailable = $state(false);
   let spinnerUsed = $state(false);
@@ -88,7 +87,6 @@
     mode = next;
     phase = "loading";
     result = undefined;
-    assignments = undefined;
     message = "";
 
     try {
@@ -109,7 +107,6 @@
         onContextLost() {
           cancelWheelDrag();
           result = undefined;
-          assignments = undefined;
           phase = "unavailable";
           message = "3D 화면 연결이 끊어졌습니다.";
         },
@@ -132,7 +129,6 @@
 
   function resetRound() {
     result = undefined;
-    assignments = undefined;
     if (!player || phase === "unavailable") return;
 
     message = "";
@@ -170,12 +166,11 @@
   function startRound(spin?: number) {
     if (!player || isRunning) return;
     result = undefined;
-    assignments = undefined;
     message = "";
     spinnerUsed = false;
     phase = "running";
     try {
-      assignments = player.start(candidates, spin);
+      player.start(candidates, spin);
     } catch {
       reportFailure("뽑기를 시작할 수 없습니다. 다시 시도해 주세요.");
     }
@@ -329,6 +324,7 @@
       class="scene-view"
       role="group"
       aria-label={mode === "roulette" ? "룰렛 휠" : "구슬 경주 트랙"}
+      aria-describedby={mode === "roulette" ? "wheel-candidates" : undefined}
       class:dragging-wheel={draggingWheel}
       class:celebrating={!!result}
       style:--reward-impact={`${rewardTiming.impactMs}ms`}
@@ -336,6 +332,9 @@
       onpointerdown={startWheelDrag}
     >
       <div class="scene-canvas" bind:this={viewport}></div>
+      {#if mode === "roulette"}
+        <p id="wheel-candidates" hidden>{candidateNames.join(", ")}</p>
+      {/if}
       <div aria-live="polite" aria-atomic="true">
         {#if result}
           <DrawCelebration {result} />
@@ -407,20 +406,6 @@
           </li>
         {/each}
       </ul>
-    {:else if assignments}
-      {#key assignments}
-        <details class="pocket-assignments">
-          <summary>포켓 배정 보기</summary>
-          <ul>
-            {#each candidates as candidate (candidate.id)}
-              <li class:winner={result?.candidate.id === candidate.id}>
-                <span class="entrant-name">{candidate.name}</span>
-                <span class="entrant-pockets">{assignments.get(candidate.id)?.join(", ")}</span>
-              </li>
-            {/each}
-          </ul>
-        </details>
-      {/key}
     {/if}
   </main>
 </div>

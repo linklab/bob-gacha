@@ -53,7 +53,7 @@ interface Round {
 }
 
 export interface DrawPlayer {
-  start(candidates: readonly Candidate[], spin?: number): DrawScene["assignments"];
+  start(candidates: readonly Candidate[], spin?: number): void;
   wheelPointAt(clientX: number, clientY: number, insideWheel?: boolean): Vector2 | undefined;
   turnWheel(delta: number): void;
   reverseSpinner(): boolean;
@@ -234,7 +234,6 @@ export function createDrawPlayer(
       pending = 0;
       elapsed = 0;
       animationFrame = requestAnimationFrame(tick);
-      return round.simulation.assignments;
     },
     wheelPointAt(clientX, clientY, insideWheel = false) {
       if (!round?.simulation.turnWheel) return;

@@ -96,9 +96,9 @@
     <span class="crest" aria-hidden="true"></span>
     <span class="result-label">당첨</span>
     <strong class:long={result.candidate.name.length > 11}>{result.candidate.name}</strong>
-    <span class="pocket-result">
-      {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
-    </span>
+    {#if result.pocketIndex === undefined}
+      <span class="pocket-result">{result.candidate.id}번 구슬</span>
+    {/if}
   </div>
 </div>
 
