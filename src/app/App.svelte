@@ -183,71 +183,70 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <h1>Bob Gacha</h1>
     </div>
-    <nav class="mode-nav" aria-label="뽑기 방식">
-      {#each modeIds as id (id)}
-        <button
-          type="button"
-          aria-pressed={mode === id}
-          aria-controls="draw-stage"
-          disabled={isRunning && mode !== id}
-          onclick={() => { if (mode !== id) void showMode(id); }}
-        >{modes[id].title}</button>
-      {/each}
-    </nav>
   </header>
 
   <main class="workspace">
-    <section class="draw-stage" id="draw-stage" aria-labelledby="mode-title">
+    <section class="draw-stage" data-mode={mode} aria-labelledby="mode-title">
+      <nav class="mode-nav" aria-label="뽑기 방식">
+        {#each modeIds as id (id)}
+          <button
+            type="button"
+            aria-pressed={mode === id}
+            aria-controls="draw-view"
+            disabled={isRunning && mode !== id}
+            onclick={() => { if (mode !== id) void showMode(id); }}
+          >{modes[id].title}</button>
+        {/each}
+      </nav>
       <header class="mode-heading">
         <h2 id="mode-title">{settings.title}</h2>
         <p>{settings.description}</p>
       </header>
 
-      <div class="scene-view">
+      <div class="scene-view" id="draw-view">
         <div class="scene-canvas" bind:this={viewport}></div>
         {#if phase === "loading"}
           <span class="scene-loading" aria-hidden="true"></span>
         {/if}
       </div>
-
-      <div class="stage-toolbar">
-        <div class="stage-readout" aria-live="polite" aria-atomic="true">
-          {#if result}
-            <div class="draw-result" data-testid="draw-result">
-              <span class="result-label">당첨</span>
-              <strong>{result.candidate.name}</strong>
-              <span class="pocket-result">
-                {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
-              </span>
-            </div>
-          {:else}
-            <span class="stage-status" class:active={isRunning} class:error-status={!!message}>
-              <span class="status-light" aria-hidden="true"></span>
-              {stageStatus}
-            </span>
-          {/if}
-        </div>
-
-        <button
-          class="draw-action"
-          class:stop-button={isRunning}
-          type="button"
-          disabled={phase === "loading"}
-          onclick={handleControl}
-        >
-          <span class="action-symbol" aria-hidden="true">
-            {#if isRunning}
-              <span class="stop-mark"></span>
-            {:else if phase === "unavailable"}
-              <span class="reload-mark">↻</span>
-            {:else}
-              <span class="play-mark"></span>
-            {/if}
-          </span>
-          {action}
-        </button>
-      </div>
     </section>
+
+    <div class="stage-toolbar">
+      <div class="stage-readout" aria-live="polite" aria-atomic="true">
+        {#if result}
+          <div class="draw-result" data-testid="draw-result">
+            <span class="result-label">당첨</span>
+            <strong>{result.candidate.name}</strong>
+            <span class="pocket-result">
+              {result.pocket !== undefined ? `${result.pocket}번 포켓` : `${result.candidate.id}번 구슬`}
+            </span>
+          </div>
+        {:else}
+          <span class="stage-status" class:active={isRunning} class:error-status={!!message}>
+            <span class="status-light" aria-hidden="true"></span>
+            {stageStatus}
+          </span>
+        {/if}
+      </div>
+
+      <button
+        class="draw-action"
+        type="button"
+        disabled={phase === "loading"}
+        onclick={handleControl}
+      >
+        <span class="action-symbol" aria-hidden="true">
+          {#if isRunning}
+            <span class="stop-mark"></span>
+          {:else if phase === "unavailable"}
+            <span class="reload-mark">↻</span>
+          {:else}
+            <span class="play-mark"></span>
+          {/if}
+        </span>
+        {action}
+      </button>
+    </div>
 
     <aside class="control-panel" aria-labelledby="candidate-title">
       <div class="panel-heading">
