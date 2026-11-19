@@ -6,10 +6,14 @@ import {
   Material,
   PCFShadowMap,
   PerspectiveCamera,
+  Plane,
   PointLight,
+  Raycaster,
   Scene,
   SpotLight,
   Texture,
+  Vector2,
+  Vector3,
   WebGLRenderer,
 } from "three";
 
@@ -38,6 +42,7 @@ interface PlayerEvents {
   onTimeout(): void;
   onError(): void;
   onContextLost(): void;
+  onSpinnerAvailabilityChange(available: boolean): void;
 }
 
 interface Round {
@@ -47,7 +52,10 @@ interface Round {
 }
 
 export interface DrawPlayer {
-  start(candidates: readonly Candidate[]): DrawScene["assignments"];
+  start(candidates: readonly Candidate[], spin?: number): DrawScene["assignments"];
+  wheelAngleAt(clientX: number, clientY: number, requireRim?: boolean): number | undefined;
+  turnWheel(delta: number): void;
+  reverseSpinner(): boolean;
   reset(candidates: readonly Candidate[]): void;
   dispose(): void;
 }
@@ -71,6 +79,12 @@ export function createDrawPlayer(
   let previousTime = 0;
   let elapsed = 0;
   let pending = 0;
+  let started = false;
+  let spinnerAvailable = false;
+  const wheelPlane = new Plane(new Vector3(0, 1, 0), -1.05);
+  const wheelRay = new Raycaster();
+  const pointer = new Vector2();
+  const hit = new Vector3();
   const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   const observer = new ResizeObserver(() => draw());
   renderer.domElement.addEventListener("webglcontextlost", handleContextLoss);
@@ -112,6 +126,7 @@ export function createDrawPlayer(
         elapsed += timeStep;
       }
       if (!reducedMotion.matches || result || elapsed >= maxDuration) draw();
+      setSpinnerAvailability(!result && elapsed < maxDuration && canReverseSpinner());
       if (result) {
         events.onResult(result);
       } else if (elapsed >= maxDuration) {
@@ -120,6 +135,7 @@ export function createDrawPlayer(
         animationFrame = requestAnimationFrame(tick);
       }
     } catch {
+      setSpinnerAvailability(false);
       events.onError();
     }
   }
@@ -127,10 +143,22 @@ export function createDrawPlayer(
   function releaseRound() {
     if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
     animationFrame = undefined;
+    started = false;
+    setSpinnerAvailability(false);
     if (!round) return;
     round.simulation.world.free();
     disposeScene(round.scene);
     round = undefined;
+  }
+
+  function canReverseSpinner() {
+    return round?.simulation.canReverseSpinner?.() === true;
+  }
+
+  function setSpinnerAvailability(available: boolean) {
+    if (available === spinnerAvailable) return;
+    spinnerAvailable = available;
+    events.onSpinnerAvailabilityChange(available);
   }
 
   function reset(entries: readonly Candidate[]) {
@@ -175,15 +203,48 @@ export function createDrawPlayer(
   }
 
   return {
-    start(entries) {
-      reset(entries);
+    start(entries, spin) {
+      if (!round || started) reset(entries);
       if (!round) return;
-      round.simulation.start();
+      if (animationFrame !== undefined) cancelAnimationFrame(animationFrame);
+      animationFrame = undefined;
+      started = true;
+      round.simulation.start(spin);
+      setSpinnerAvailability(canReverseSpinner());
       previousTime = performance.now();
       pending = 0;
       elapsed = 0;
       animationFrame = requestAnimationFrame(tick);
       return round.simulation.assignments;
+    },
+    wheelAngleAt(clientX, clientY, requireRim = false) {
+      if (!round?.simulation.turnWheel) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      pointer.set(
+        ((clientX - rect.left) / rect.width) * 2 - 1,
+        1 - ((clientY - rect.top) / rect.height) * 2,
+      );
+      wheelRay.setFromCamera(pointer, round.camera);
+      if (!wheelRay.ray.intersectPlane(wheelPlane, hit)) return;
+      const radius = Math.hypot(hit.x, hit.z);
+      if (radius < 1.1 || (requireRim && radius > 4.6)) return;
+      return Math.atan2(-hit.z, hit.x);
+    },
+    turnWheel(delta) {
+      if (started || !round?.simulation.turnWheel) return;
+      round.simulation.turnWheel(delta);
+      if (animationFrame === undefined) {
+        animationFrame = requestAnimationFrame(() => {
+          animationFrame = undefined;
+          draw();
+        });
+      }
+    },
+    reverseSpinner() {
+      const reversed = round?.simulation.reverseSpinner?.() === true;
+      setSpinnerAvailability(canReverseSpinner());
+      return reversed;
     },
     reset,
     dispose,

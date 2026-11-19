@@ -1,7 +1,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { PerspectiveCamera, Scene } from "three";
+import { PerspectiveCamera, Quaternion, Scene } from "three";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { spinnerZ, trackHeight } from "../../src/features/marbles/course";
 import { createMarbleRaceScene } from "../../src/features/marbles/marbles";
 import type { Candidate } from "../../src/lib/draw";
 
@@ -52,6 +53,52 @@ function simulateRace(count: number, seed: number) {
 }
 
 describe("3D marble race", () => {
+  it("reverses the physical bar once and continues from the same angle", () => {
+    const { race } = createRace(6, 34);
+    try {
+      const spinner = race.world.bodies.getAll().find((body) => body.isKinematic())!;
+      const rotation = () => new Quaternion().copy(spinner.rotation());
+      const advance = () => {
+        for (let i = 0; i < 36; i++) {
+          race.beforeStep?.(timestep);
+          race.world.step();
+          race.afterStep(timestep);
+        }
+      };
+      expect(race.canReverseSpinner?.()).toBe(false);
+      expect(race.reverseSpinner?.()).toBe(false);
+      race.start();
+      expect(race.canReverseSpinner?.()).toBe(true);
+      const initial = rotation();
+      advance();
+      const turning = rotation();
+      expect(initial.invert().multiply(turning).y).toBeGreaterThan(0);
+      expect(race.reverseSpinner?.()).toBe(true);
+      expect(turning.angleTo(rotation())).toBeCloseTo(0, 3);
+      expect(race.canReverseSpinner?.()).toBe(false);
+      expect(race.reverseSpinner?.()).toBe(false);
+      advance();
+      expect(turning.invert().multiply(rotation()).y).toBeLessThan(0);
+    } finally {
+      race.world.free();
+    }
+  });
+
+  it("locks the bar once the leading marble clears it", () => {
+    const { race } = createRace(2, 34);
+    try {
+      race.start();
+      const leader = race.world.bodies.getAll().find((body) => body.isDynamic())!;
+      const z = spinnerZ + 4;
+      leader.setTranslation({ x: 0, y: trackHeight(z) + 0.47, z }, true);
+      race.afterStep(timestep);
+      expect(race.canReverseSpinner?.()).toBe(false);
+      expect(race.reverseSpinner?.()).toBe(false);
+    } finally {
+      race.world.free();
+    }
+  });
+
   it.each([2, 12])("produces a seed-repeatable finisher with %i marbles", (count) => {
     expect(simulateRace(count, 34)).toBe(simulateRace(count, 34));
   });

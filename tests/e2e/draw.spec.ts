@@ -74,6 +74,9 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   const startRace = page.getByRole("button", { name: "경주 시작", exact: true });
   await startRace.click();
   await expect(stop).toBeFocused();
+  const reverse = page.getByRole("button", { name: "회전 바 뒤집기", exact: true });
+  await reverse.click();
+  await expect(page.getByRole("button", { name: "회전 바 뒤집음", exact: true })).toBeDisabled();
   await expect(page.getByText("구슬이 달리고 있습니다", { exact: true })).toHaveCount(0);
   await expect(result.locator("strong")).toHaveText(/^(김밥|라멘|우동|카레)$/, { timeout: 40_000 });
   await expect(result.locator(".pocket-result")).toHaveText(/\d+번 구슬/);
@@ -83,10 +86,38 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect(entrant.locator(".entrant-name")).toHaveText(raceWinner);
   await expect(entrant.locator(".entrant-number")).toHaveText(marble ?? "");
   await again.click();
+  await expect(reverse).toBeEnabled();
   await stop.click();
   await expect(startRace).toBeEnabled();
   await expect(result).toHaveCount(0);
   expect(pageErrors).toEqual([]);
+});
+
+test("starts roulette with a drag on the wheel", async ({ page }) => {
+  await page.goto("./");
+  const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
+  const stop = page.getByRole("button", { name: "중지", exact: true });
+  await expect(start).toBeEnabled();
+  const wheel = await page.locator(".scene-view").boundingBox();
+  if (!wheel) throw new Error("The roulette wheel is missing");
+  const centerX = wheel.x + wheel.width / 2;
+  const centerY = wheel.y + wheel.height / 2;
+  const radius = wheel.height * 0.34;
+  await page.mouse.click(centerX + radius, centerY);
+  await expect(start).toBeEnabled();
+  await page.mouse.move(centerX + radius, centerY);
+  await page.mouse.down();
+  for (let step = 1; step <= 8; step++) {
+    const angle = (step * Math.PI) / 12;
+    await page.mouse.move(
+      centerX + Math.cos(angle) * radius,
+      centerY + Math.sin(angle) * radius * 0.75,
+    );
+  }
+  await expect(start).toBeEnabled();
+  await page.mouse.up();
+  await expect(stop).toBeEnabled();
+  await expect(page.getByTestId("draw-result")).toBeVisible({ timeout: 30_000 });
 });
 
 test("validates candidate drafts and discards unconfirmed changes", async ({ page }) => {

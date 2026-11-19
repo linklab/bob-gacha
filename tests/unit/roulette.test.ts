@@ -1,5 +1,5 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { PerspectiveCamera, Scene } from "three";
+import { PerspectiveCamera, Scene, Vector3 } from "three";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createRouletteScene } from "../../src/features/roulette/roulette";
 import type { Candidate, DrawResult } from "../../src/lib/draw";
@@ -96,7 +96,49 @@ describe("룰렛", () => {
     expect(entrants).toContain(result.candidate);
     expect(result.pocket).toBeGreaterThanOrEqual(0);
     expect(result.pocket).toBeLessThanOrEqual(36);
-    expect(duration).toBeGreaterThan(7);
+    expect(duration).toBeGreaterThan(11);
+    expect(duration).toBeLessThan(19);
+  });
+
+  it("드래그를 놓은 각도에서 손을 뗀 방향과 속도로 실제 휠을 돌린다", () => {
+    function motion(spin: number) {
+      const scene = new Scene();
+      const draw = createRouletteScene({
+        rapier: RAPIER,
+        scene,
+        camera: new PerspectiveCamera(35, 1.55, 0.1, 100),
+        candidates,
+        random: seededRandom(1957),
+      });
+      draw.world.timestep = step;
+      const rotor = scene.getObjectByName("roulette-rotor")!;
+      const direction = new Vector3();
+      function wheelAngle() {
+        draw.render();
+        direction.set(1, 0, 0).applyQuaternion(rotor.quaternion);
+        return Math.atan2(-direction.z, direction.x);
+      }
+      try {
+        const previewAngle = 0.63;
+        draw.turnWheel!(previewAngle);
+        expect(wheelAngle()).toBeCloseTo(previewAngle);
+        draw.start(spin);
+        expect(wheelAngle()).toBeCloseTo(previewAngle);
+        for (let frame = 0; frame < 12; frame++) {
+          draw.beforeStep?.(step);
+          draw.world.step();
+          draw.afterStep(step);
+        }
+        return wheelAngle() - previewAngle;
+      } finally {
+        draw.world.free();
+      }
+    }
+
+    expect(motion(-1)).toBeLessThan(0);
+    const gentle = motion(0.2);
+    expect(gentle).toBeGreaterThan(0);
+    expect(motion(1)).toBeGreaterThan(gentle * 1.2);
   });
 
   it("같은 발사 조건에서 후보 순서가 달라져도 공은 같은 포켓에 안착한다", () => {

@@ -47,6 +47,14 @@ export const rotorProfile = [
   [2.722, 0.426],
   [3.145, 0.606],
 ] as const;
+export const crownProfile = [
+  [0.001, 0.94],
+  [0.385, 0.938],
+  [0.781, 0.864],
+  [1.594, 0.626],
+  [1.689, 0.585],
+  [1.731, 0.541],
+] as const;
 
 const ivory = "#fff6e7";
 const tileColors = ["#147257", "#9e2c42", "#171a21"];
@@ -478,18 +486,7 @@ export function createWheel(scene: Scene) {
     brassMetal,
   );
 
-  addRing(
-    rotor,
-    [
-      [0.001, 0.94],
-      [0.385, 0.938],
-      [0.781, 0.864],
-      [1.594, 0.626],
-      [1.689, 0.585],
-      [1.731, 0.541],
-    ],
-    wood,
-  );
+  addRing(rotor, crownProfile, wood);
 
   addRing(
     rotor,

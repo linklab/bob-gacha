@@ -22,8 +22,19 @@
   ];
   const maxCandidates = colors.length;
   const previewLimit = 3;
+  const minimumWheelDrag = 0.12;
+  const fullSpeed = 8;
 
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
+
+  interface WheelDrag {
+    pointerId: number;
+    angle: number | undefined;
+    lastAt: number;
+    rotation: number;
+    velocity: number;
+    active: boolean;
+  }
 
   let candidateNames = $state.raw(["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"]);
   let draft = $state("");
@@ -32,11 +43,15 @@
   let result = $state<DrawResult>();
   let assignments: DrawScene["assignments"] = $state.raw();
   let message = $state("");
+  let spinnerAvailable = $state(false);
+  let spinnerUsed = $state(false);
+  let draggingWheel = $state(false);
   let viewport = $state<HTMLDivElement>();
   let editor = $state<HTMLDialogElement>();
 
   let player: DrawPlayer | undefined;
   let loadVersion = 0;
+  let wheelDrag: WheelDrag | undefined;
 
   const candidates: Candidate[] = $derived(
     candidateNames.map((name, index) => ({ id: index + 1, name, color: colors[index] })),
@@ -52,6 +67,10 @@
   const candidatePreview = $derived(candidateNames.slice(0, previewLimit).join(" · "));
   const hiddenCandidates = $derived(candidateNames.length - previewLimit);
   const isRunning = $derived(phase === "running");
+  const canDragWheel = $derived(
+    mode === "roulette" && (phase === "ready" || phase === "finished" || phase === "failed"),
+  );
+  const raceRunning = $derived(isRunning && mode === "race");
   const action = $derived(
     isRunning ? "중지"
     : phase === "unavailable" ? "다시 불러오기"
@@ -61,6 +80,7 @@
   async function showMode(next: DrawMode) {
     const host = viewport;
     if (!host) return;
+    cancelWheelDrag();
     const version = ++loadVersion;
     player?.dispose();
     player = undefined;
@@ -86,10 +106,14 @@
           reportFailure("진행 중 오류가 발생했습니다. 다시 시작해 주세요.");
         },
         onContextLost() {
+          cancelWheelDrag();
           result = undefined;
           assignments = undefined;
           phase = "unavailable";
           message = "3D 화면 연결이 끊어졌습니다.";
+        },
+        onSpinnerAvailabilityChange(available) {
+          spinnerAvailable = available;
         },
       });
       phase = "ready";
@@ -120,6 +144,7 @@
   }
 
   function handleControl() {
+    cancelWheelDrag();
     if (isRunning) {
       resetRound();
       return;
@@ -128,21 +153,97 @@
       void showMode(mode);
       return;
     }
-    if (!player) return;
+    startRound();
+  }
 
+  function startRound(spin?: number) {
+    if (!player || isRunning) return;
     result = undefined;
     assignments = undefined;
     message = "";
+    spinnerUsed = false;
     phase = "running";
     try {
-      assignments = player.start(candidates);
+      assignments = player.start(candidates, spin);
     } catch {
       reportFailure("뽑기를 시작할 수 없습니다. 다시 시도해 주세요.");
     }
   }
 
+  function startWheelDrag(event: PointerEvent) {
+    if (!canDragWheel || wheelDrag || !event.isPrimary || event.button !== 0) return;
+    const angle = player?.wheelAngleAt(event.clientX, event.clientY, true);
+    if (angle === undefined || !(event.currentTarget instanceof HTMLElement)) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    wheelDrag = {
+      pointerId: event.pointerId,
+      angle,
+      lastAt: event.timeStamp,
+      rotation: 0,
+      velocity: 0,
+      active: false,
+    };
+  }
+
+  function moveWheelDrag(event: PointerEvent) {
+    const drag = wheelDrag;
+    if (!drag || drag.pointerId !== event.pointerId || !player) return;
+    const angle = player.wheelAngleAt(event.clientX, event.clientY);
+    const previousAngle = drag.angle;
+    drag.angle = angle;
+    if (angle === undefined || previousAngle === undefined) return;
+
+    const delta = Math.atan2(Math.sin(angle - previousAngle), Math.cos(angle - previousAngle));
+    const dt = Math.max((event.timeStamp - drag.lastAt) / 1000, 0.008);
+    drag.lastAt = event.timeStamp;
+    drag.velocity += (delta / dt - drag.velocity) * (1 - Math.exp(-dt / 0.055));
+    drag.rotation += delta;
+
+    if (drag.active) {
+      player.turnWheel(delta);
+    } else if (Math.abs(drag.rotation) >= minimumWheelDrag) {
+      if (phase !== "ready") {
+        resetRound();
+        drag.angle = player.wheelAngleAt(event.clientX, event.clientY);
+      }
+      if (phase !== "ready") return;
+      drag.active = draggingWheel = true;
+      player.turnWheel(drag.rotation);
+    }
+  }
+
+  function releaseWheelDrag(event: PointerEvent) {
+    const drag = wheelDrag;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    wheelDrag = undefined;
+    draggingWheel = false;
+    if (!drag.active || phase !== "ready") return;
+    const pause = Math.max(0, event.timeStamp - drag.lastAt - 30);
+    const velocity = drag.velocity * Math.exp(-pause / 95);
+    const direction = Math.sign(Math.abs(velocity) > 0.15 ? velocity : drag.rotation);
+    const power = Math.min(Math.abs(velocity) / fullSpeed, 1);
+    startRound(direction * power);
+  }
+
+  function cancelWheelDrag(event?: PointerEvent) {
+    const drag = wheelDrag;
+    if (!drag || (event && drag.pointerId !== event.pointerId)) return;
+    wheelDrag = undefined;
+    draggingWheel = false;
+    if (drag.active) player?.turnWheel(-drag.rotation);
+  }
+
+  function handleCandidateControl() {
+    if (raceRunning) {
+      if (spinnerAvailable && player?.reverseSpinner()) spinnerUsed = true;
+    } else {
+      openEditor();
+    }
+  }
+
   function openEditor() {
     if (isRunning || !editor) return;
+    cancelWheelDrag();
     flushSync(() => {
       draft = candidateNames.join("\n");
     });
@@ -186,8 +287,22 @@
   </header>
 
   <main class="draw-stage" id="draw-stage" data-mode={mode} aria-label={settings.title}>
-    <div class="scene-view">
+    <div
+      class="scene-view"
+      role="group"
+      aria-label={mode === "roulette" ? "룰렛 휠" : "구슬 경주 트랙"}
+      class:dragging-wheel={draggingWheel}
+      data-wheel-draggable={canDragWheel ? "" : undefined}
+      onpointerdown={startWheelDrag}
+      onpointermove={moveWheelDrag}
+      onpointerup={releaseWheelDrag}
+      onpointercancel={cancelWheelDrag}
+      onlostpointercapture={cancelWheelDrag}
+    >
       <div class="scene-canvas" bind:this={viewport}></div>
+      {#if canDragWheel && !draggingWheel}
+        <span class="wheel-hint">휠을 드래그해 돌리기</span>
+      {/if}
     </div>
 
     <div class="draw-controls">
@@ -202,10 +317,12 @@
         <button
           class="button-secondary"
           type="button"
-          aria-label="후보 편집"
-          disabled={isRunning}
-          onclick={openEditor}
-        >{mode === "race" ? "후보 편집" : "편집"}</button>
+          aria-label={raceRunning ? undefined : "후보 편집"}
+          aria-disabled={raceRunning && !spinnerAvailable ? "true" : undefined}
+          disabled={isRunning && !raceRunning}
+          onclick={handleCandidateControl}
+        >{raceRunning ? (spinnerUsed ? "회전 바 뒤집음" : "회전 바 뒤집기")
+          : mode === "race" ? "후보 편집" : "편집"}</button>
       </div>
 
       <div class="round-feedback" aria-live="polite" aria-atomic="true">

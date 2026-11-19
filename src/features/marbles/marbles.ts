@@ -12,12 +12,13 @@ import {
 } from "three";
 
 import type { CreateDrawScene } from "../../lib/draw";
-import { buildCourse, createLabelTexture, finishGate, trackHeight } from "./course";
+import { buildCourse, createLabelTexture, finishGate, spinnerZ, trackHeight } from "./course";
 
 const radius = 0.47;
 const stripeHighlight = new Color("#fff2da");
 const finishFloor = trackHeight(finishGate.z);
 const finishCeiling = finishFloor + finishGate.height;
+const spinnerSpeed = 1.85;
 
 function launchPositions(count: number, random: () => number) {
   const rows = Math.ceil(count / 6);
@@ -45,8 +46,10 @@ export const createMarbleRaceScene: CreateDrawScene = ({
 }) => {
   const world = new rapier.World({ x: 0, y: -9.81, z: 0 });
   const { lightAt, positionSpinner, stepSpinner } = buildCourse(scene, rapier, world);
-  const initialPhase = random() * Math.PI * 2;
-  positionSpinner(initialPhase);
+  let spinnerAngle = random() * Math.PI * 2;
+  let angularSpeed = spinnerSpeed;
+  let reversed = false;
+  positionSpinner(spinnerAngle);
 
   const positions = launchPositions(candidates.length, random);
   const sphere = new SphereGeometry(radius, 28, 20);
@@ -57,7 +60,7 @@ export const createMarbleRaceScene: CreateDrawScene = ({
       rapier.RigidBodyDesc.dynamic()
         .setTranslation(position.x, position.y, position.z)
         .setCcdEnabled(true)
-        .setLinearDamping(0.023)
+        .setLinearDamping(0.15)
         .setAngularDamping(0.045)
         .setCanSleep(false)
         .setEnabled(false)
@@ -100,21 +103,30 @@ export const createMarbleRaceScene: CreateDrawScene = ({
 
   let started = false;
   let finished = false;
-  let elapsed = 0;
+  let lead = 0;
   let cameraZ = 5.1;
   let aspect = camera.aspect;
   const facing = new Vector3();
 
   function render() {
     const wide = MathUtils.smoothstep(aspect, 1.34, 1.9);
-    const overview = wide * (1 - MathUtils.smoothstep(cameraZ, 6, 22));
+    const overview = wide * (1 - MathUtils.smoothstep(cameraZ, 5.6, 12.5));
+    const finishApproach = MathUtils.smoothstep(cameraZ, finishGate.z - 18, finishGate.z - 4);
+    const spinnerApproach =
+      MathUtils.smoothstep(cameraZ, spinnerZ - 17, spinnerZ - 9) *
+      (1 - MathUtils.smoothstep(cameraZ, spinnerZ - 3, spinnerZ + 9));
     const scale = Math.max(1.08, 1.32 / aspect);
-    const lookZ = cameraZ + MathUtils.lerp(1.1, 13.9, overview);
-    const lookY = trackHeight(lookZ) + MathUtils.lerp(0.32, -5, overview);
+    const followZ = MathUtils.lerp(
+      cameraZ + 1.3 + spinnerApproach * 2.3,
+      finishGate.z - 3.1,
+      finishApproach,
+    );
+    const lookZ = MathUtils.lerp(followZ, finishGate.z * 0.39, overview);
+    const lookY = trackHeight(lookZ) + MathUtils.lerp(0.32, -6.3, overview);
     camera.position.set(
-      MathUtils.lerp(MathUtils.lerp(-8.1, -11, wide) * scale, -27, overview),
-      lookY + MathUtils.lerp(13.3 * scale, 33, overview),
-      lookZ - MathUtils.lerp(13.7 * scale, 15.5, overview),
+      MathUtils.lerp((MathUtils.lerp(-8.1, -11, wide) - 3 * finishApproach) * scale, -40, overview),
+      lookY + MathUtils.lerp((13.3 + spinnerApproach * 1.5) * scale, 50, overview),
+      lookZ - MathUtils.lerp((13.7 - finishApproach * 2.7) * scale, 25, overview),
     );
     camera.lookAt(0, lookY, lookZ);
     lightAt(cameraZ);
@@ -131,8 +143,18 @@ export const createMarbleRaceScene: CreateDrawScene = ({
 
   render();
 
+  function canReverseSpinner() {
+    return started && !finished && !reversed && lead < spinnerZ + 3;
+  }
+
   return {
     world,
+    canReverseSpinner,
+    reverseSpinner() {
+      if (!canReverseSpinner()) return false;
+      reversed = true;
+      return true;
+    },
     start() {
       if (started) return;
       started = true;
@@ -143,18 +165,19 @@ export const createMarbleRaceScene: CreateDrawScene = ({
     },
     beforeStep(dt) {
       if (!started) return;
-      elapsed += dt;
-      stepSpinner(initialPhase + elapsed * 1.85);
+      angularSpeed = MathUtils.damp(angularSpeed, reversed ? -spinnerSpeed : spinnerSpeed, 23, dt);
+      spinnerAngle += angularSpeed * dt;
+      stepSpinner(spinnerAngle);
       for (const { body, previousPosition } of racers) previousPosition.copy(body.translation());
     },
     afterStep(dt) {
       if (!started) return;
-      let lead = 0;
+      let furthest = 0;
       let earliest = Infinity;
       let winner;
       for (const { candidate, body, previousPosition } of racers) {
         const { x, y, z } = body.translation();
-        lead = Math.max(lead, z);
+        furthest = Math.max(furthest, z);
         if (finished || previousPosition.z >= finishGate.z || z < finishGate.z) continue;
         const crossing = (finishGate.z - previousPosition.z) / (z - previousPosition.z);
         if (crossing >= earliest) continue;
@@ -169,7 +192,8 @@ export const createMarbleRaceScene: CreateDrawScene = ({
         earliest = crossing;
         winner = candidate;
       }
-      const target = Math.min(finishGate.z, Math.max(4, lead));
+      lead = Math.max(lead, furthest);
+      const target = Math.min(finishGate.z, Math.max(4, furthest));
       cameraZ += (target - cameraZ) * (1 - Math.exp(-3.25 * dt));
       if (winner) {
         finished = true;

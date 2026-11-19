@@ -23,15 +23,17 @@ import type { DrawSceneContext } from "../../lib/draw";
 type Rapier = DrawSceneContext["rapier"];
 
 const ramps = [
-  { end: 11, grade: 0.25 },
-  { end: 25, grade: 0.15 },
-  { end: 50, grade: 0.21 },
+  { end: 21, grade: 0.2 },
+  { end: 46, grade: 0.16 },
+  { end: 72, grade: 0.163 },
+  { end: 85, grade: 0.18 },
 ];
 
 const trackHalfWidth = 4.25;
-const trackOpeningHeight = 10;
+const trackOpeningHeight = 14.7;
 const lastRamp = ramps[ramps.length - 1];
-export const finishGate = { z: 45, halfWidth: 4.225, height: 3.55 };
+export const finishGate = { z: 80, halfWidth: 4.225, height: 3.55 };
+export const spinnerZ = 36;
 
 function track(z: number) {
   let start = 0;
@@ -76,7 +78,7 @@ export function createLabelTexture(label: string, isNumber = true) {
 }
 
 export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Rapier["World"]>) {
-  scene.fog = new Fog(new Color("#101116"), 30, 77);
+  scene.fog = new Fog(new Color("#101116"), 54, 135);
 
   const surface = new MeshStandardMaterial({ color: "#303744", roughness: 0.86 });
   const guard = new MeshStandardMaterial({ color: "#28313e", roughness: 0.64 });
@@ -134,9 +136,31 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
     return new Vector3(x, y + height * Math.cos(angle), z + height * Math.sin(angle));
   }
 
-  const floor = new Mesh(new PlaneGeometry(125, 145), new ShadowMaterial({ opacity: 0.4 }));
+  function addGuide(fromX: number, fromZ: number, toX: number, toZ: number) {
+    const width = 0.24;
+    const height = 0.72;
+    const z = (fromZ + toZ) / 2;
+    const { angle } = track(z);
+    const across = toX - fromX;
+    const downhill = (toZ - fromZ) / Math.cos(angle);
+    const length = Math.hypot(across, downhill);
+    const mesh = addBox(width, height, length, guard, raised((fromX + toX) / 2, z, 0.31), angle);
+    mesh.rotateY(Math.atan2(across, downhill));
+    const trim = new Mesh(new BoxGeometry(width + 0.04, 0.06, length), edge);
+    trim.position.y = height / 2;
+    mesh.add(trim);
+    world.createCollider(
+      rapier.ColliderDesc.cuboid(width / 2, height / 2, length / 2)
+        .setTranslation(mesh.position.x, mesh.position.y, mesh.position.z)
+        .setRotation(mesh.quaternion)
+        .setFriction(0.26)
+        .setRestitution(0.22),
+    );
+  }
+
+  const floor = new Mesh(new PlaneGeometry(125, 165), new ShadowMaterial({ opacity: 0.4 }));
   floor.rotation.x = -Math.PI / 2;
-  floor.position.set(0, -1.7, 23);
+  floor.position.set(0, -1.7, finishGate.z / 2);
   floor.receiveShadow = true;
   scene.add(floor);
 
@@ -160,8 +184,16 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
   addBox(8.25, 0.018, 0.12, bright, raised(0, 3.85, 0.008), opening.angle);
   addBox(8.5, 0.77, 0.22, guard, raised(0, 0.13, 0.36), opening.angle, true);
   addBox(8.45, 0.07, 0.045, edge, raised(0, 0.035, 0.68), opening.angle);
-  const runoff = track(49.85);
-  addBox(8.5, 1.1, 0.22, guard, raised(0, 49.85, 0.5), runoff.angle, true);
+  const runoffZ = lastRamp.end - 0.15;
+  const runoff = track(runoffZ);
+  addBox(8.5, 1.1, 0.22, guard, raised(0, runoffZ, 0.5), runoff.angle, true);
+
+  addGuide(0, 9.8, 0, 19.2);
+  for (const side of [-1, 1]) {
+    // The guide starts at the outside rail, so marbles can't enter a dead end behind it.
+    addGuide(side * 4.24, 58, side * 2.05, 67);
+    addGuide(side * 2.05, 67, side * 2.05, 70.8);
+  }
 
   for (let z = 5.1; z < finishGate.z; z += 3.8) {
     for (const side of [-1, 1]) {
@@ -170,7 +202,7 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
   }
   const braceGeometry = new BoxGeometry(1, 1, 1);
   const braceAxis = new Vector3();
-  for (const z of [1, 11, 23, 35, 47]) {
+  for (const z of [1, 13, 25, 37, 49, 61, 73, 83]) {
     const height = trackHeight(z) + 1.35;
     for (const side of [-1, 1]) {
       addBox(0.52, height, 0.68, support, new Vector3(side * 3.55, height / 2 - 1.7, z));
@@ -191,15 +223,18 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
   const insetGeometry = new CylinderGeometry(0.29, 0.29, 0.018, 28);
   // Leave room for two marbles to pass between a bumper and either rail.
   for (const [x, z] of [
-    [-1.45, 8],
-    [1.55, 11.9],
-    [-0.15, 15.3],
-    [-1.5, 18.7],
-    [1.55, 20.2],
-    [-0.65, 29.1],
-    [1.45, 32.4],
-    [-1.55, 34.1],
-    [0.6, 37.7],
+    [0, 8.5],
+    [-2.04, 12.6],
+    [2.05, 15],
+    [-1.3, 23.7],
+    [1.45, 26.6],
+    [0.14, 30.2],
+    [-1.26, 43.4],
+    [1.52, 47.8],
+    [-1.36, 51.4],
+    [0.95, 54.8],
+    [-0.48, 65.9],
+    [1.24, 73.5],
   ]) {
     const bumper = new Mesh(bumperGeometry, guard);
     bumper.position.copy(raised(x, z, 0.27));
@@ -228,9 +263,10 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
   }
 
   const spinner = new Group();
-  spinner.position.copy(raised(0, 24, 0.46));
+  spinner.position.copy(raised(0, spinnerZ, 0.46));
   scene.add(spinner);
-  const blade = new Mesh(new BoxGeometry(5.2, 0.32, 0.4), obstacle);
+  const halfBlade = 2.9;
+  const blade = new Mesh(new BoxGeometry(2 * halfBlade, 0.32, 0.4), obstacle);
   const hub = new Mesh(new CylinderGeometry(0.4, 0.42, 0.65, 24), beam);
   const hubCap = new Mesh(insetGeometry, edge);
   hubCap.position.y = 0.33;
@@ -240,11 +276,14 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
   for (const side of [-1, 1]) {
     for (let i = 0; i < 3; i++) {
       const stripe = new Mesh(new BoxGeometry(0.14, 0.019, 0.402), guard);
-      stripe.position.set(side * (1.9 + i * 0.25), 0.161, 0);
+      stripe.position.set(side * (halfBlade - 0.7 + i * 0.25), 0.161, 0);
       spinner.add(stripe);
     }
   }
-  const spinnerBase = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), track(24).angle);
+  const spinnerBase = new Quaternion().setFromAxisAngle(
+    new Vector3(1, 0, 0),
+    track(spinnerZ).angle,
+  );
   const spinnerSpin = new Quaternion();
   const spinBody = world.createRigidBody(
     rapier.RigidBodyDesc.kinematicPositionBased().setTranslation(
@@ -254,7 +293,7 @@ export function buildCourse(scene: Scene, rapier: Rapier, world: InstanceType<Ra
     ),
   );
   world.createCollider(
-    rapier.ColliderDesc.cuboid(2.6, 0.16, 0.2).setRestitution(0.24).setFriction(0.35),
+    rapier.ColliderDesc.cuboid(halfBlade, 0.16, 0.2).setRestitution(0.24).setFriction(0.35),
     spinBody,
   );
   world.createCollider(rapier.ColliderDesc.cylinder(0.325, 0.4), spinBody);

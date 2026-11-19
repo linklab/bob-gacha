@@ -25,7 +25,10 @@ export interface DrawSceneContext {
 export interface DrawScene {
   world: RAPIER.World;
   assignments?: ReadonlyMap<number, readonly number[]>;
-  start(): void;
+  start(spin?: number): void;
+  turnWheel?(delta: number): void;
+  canReverseSpinner?(): boolean;
+  reverseSpinner?(): boolean;
   beforeStep?(dt: number): void;
   afterStep(dt: number): DrawResult | undefined;
   render(): void;
