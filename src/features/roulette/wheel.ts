@@ -7,6 +7,7 @@ import {
   Float32BufferAttribute,
   Group,
   HemisphereLight,
+  MathUtils,
   Mesh,
   MeshBasicMaterial,
   MeshPhysicalMaterial,
@@ -29,35 +30,54 @@ export const ballRadius = 0.12;
 export const pocketInner = 1.91;
 export const pocketOuter = 2.66;
 export const pocketFloor = 0.367;
-export const pocketRise = 0.022;
+export const pocketRise = 0.019;
 export const trackProfile = [
-  [3.15, 0.605],
-  [3.37, 0.705],
-  [3.67, 0.865],
-  [3.83, 0.955],
+  [3.15, 0.484],
+  [3.27, 0.542],
+  [3.39, 0.614],
+  [3.51, 0.701],
+  [3.65, 0.806],
+  [3.78, 0.898],
+  [3.9, 0.97],
+  [4.025, 1.007],
   [4.11, 1.011],
   [4.132, 1.046],
   [4.138, 1.498],
 ] as const;
 const numberBank = [
   [pocketOuter, pocketFloor + pocketRise],
-  [2.735, 0.406],
-  [2.89, 0.458],
-  [3.145, 0.606],
+  [2.79, 0.402],
+  [2.89, 0.414],
+  [3.0, 0.434],
+  [3.075, 0.455],
+  trackProfile[0],
 ] as const;
-export const rotorProfile = [
-  [1.71, 0.459],
-  [1.805, 0.404],
+const pocketProfile = [
   [pocketInner, pocketFloor],
+  [pocketInner + 0.13, pocketFloor + (0.13 * pocketRise) / (pocketOuter - pocketInner)],
+  [
+    pocketOuter - 0.13,
+    pocketFloor + pocketRise - (0.13 * pocketRise) / (pocketOuter - pocketInner),
+  ],
+] as const;
+const crownFoot = [1.6, 0.41] as const;
+const rotorProfile = [
+  crownFoot,
+  [1.7, 0.392],
+  [1.78, 0.381],
+  [1.855, 0.376],
+  ...pocketProfile,
   ...numberBank,
 ] as const;
 export const crownProfile = [
-  [0.001, 0.94],
-  [0.385, 0.938],
-  [0.781, 0.864],
-  [1.48, 0.585],
-  [1.594, 0.511],
-  [1.731, 0.447],
+  [0.001, 0.62],
+  [0.34, 0.611],
+  [0.56, 0.585],
+  [0.81, 0.538],
+  [1.05, 0.486],
+  [1.27, 0.448],
+  [1.48, 0.427],
+  crownFoot,
 ] as const;
 
 const ivory = "#fff6e7";
@@ -66,7 +86,22 @@ const pocketCenter = (pocketInner + pocketOuter) / 2;
 
 type Profile = readonly (readonly [number, number])[];
 
-export function radialSurface(profile: Profile, from = 0, to = fullTurn, segments = 192) {
+function fretLift(radius: number, angle: number) {
+  if (radius <= pocketInner - 0.09 || radius >= pocketOuter + 0.12) return 0;
+  const edgeDistance =
+    Math.abs(MathUtils.euclideanModulo(angle, pocketAngle) - pocketAngle * 0.5) * radius;
+  const innerShoulder = MathUtils.smoothstep(radius, pocketInner - 0.09, pocketInner + 0.08);
+  const outerShoulder = 1 - MathUtils.smoothstep(radius, pocketOuter - 0.08, pocketOuter + 0.12);
+  return 0.016 * (1 - MathUtils.smoothstep(edgeDistance, 0, 0.128)) * innerShoulder * outerShoulder;
+}
+
+export function radialSurface(
+  profile: Profile,
+  from = 0,
+  to = fullTurn,
+  segments = 192,
+  lift?: (radius: number, angle: number) => number,
+) {
   const positions = [];
   const uvs = [];
   const indices = [];
@@ -76,7 +111,11 @@ export function radialSurface(profile: Profile, from = 0, to = fullTurn, segment
     const angle = i === segments && to - from === fullTurn ? from : from + (to - from) * fraction;
     for (let row = 0; row < profile.length; row++) {
       const [radius, height] = profile[row];
-      positions.push(radius * Math.cos(angle), height, radius * Math.sin(angle));
+      positions.push(
+        radius * Math.cos(angle),
+        height + (lift?.(radius, angle) ?? 0),
+        radius * Math.sin(angle),
+      );
       uvs.push(1 - fraction, 1 - row / (profile.length - 1));
 
       if (i < segments && row + 1 < profile.length) {
@@ -94,6 +133,11 @@ export function radialSurface(profile: Profile, from = 0, to = fullTurn, segment
   geometry.computeVertexNormals();
   return geometry;
 }
+
+// A single surface lets the ball pass from the floor onto a fret without overlapping contacts.
+const rotorSegments = 16 * pocketNumbers.length;
+export const rotorGeometry = () =>
+  radialSurface(rotorProfile, 0, fullTurn, rotorSegments, fretLift);
 
 function ridgeGeometry(
   inner: number,
@@ -134,9 +178,7 @@ function ridgeGeometry(
   return faceted;
 }
 
-export const dividerGeometry = () =>
-  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.14, 0.027);
-export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.29, 0.055);
+export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.643, 0.859, 0.29, 0.038);
 const deflectorCount = 12;
 export const deflectorAngles = Array.from(
   { length: deflectorCount },
@@ -422,10 +464,10 @@ export function createWheel(scene: Scene) {
   addRing(
     stationary,
     [
-      [3.152, 0.609],
-      [3.173, 0.619],
-      [3.212, 0.64],
-      [3.225, 0.64],
+      [3.152, 0.491],
+      [3.173, 0.503],
+      [3.212, 0.52],
+      [3.225, 0.526],
     ],
     brassMetal,
   );
@@ -438,7 +480,7 @@ export function createWheel(scene: Scene) {
     stud.castShadow = true;
   }
 
-  addRing(rotor, rotorProfile, darkBand);
+  addMesh(rotor, rotorGeometry(), darkBand);
 
   const pocketMaterials = tileColors.map((color) => material(color, 0.72));
   const atlas = makeNumberAtlas();
@@ -452,21 +494,26 @@ export function createWheel(scene: Scene) {
       })
     : undefined;
   const floorGeometry = radialSurface(
-    [
-      [pocketInner, pocketFloor + 0.006],
-      [pocketOuter, pocketFloor + pocketRise + 0.006],
-    ],
+    [...pocketProfile, numberBank[0]],
     -pocketAngle * 0.5,
     pocketAngle * 0.5,
-    6,
+    16,
+    (radius, angle) => 0.005 + fretLift(radius, angle),
   );
   const tileGeometry = radialSurface(
-    numberBank.map(([radius, height]) => [radius, height + 0.008]),
+    numberBank,
     -pocketAngle * 0.484,
     pocketAngle * 0.484,
-    6,
+    16,
+    (radius, angle) => 0.008 + fretLift(radius, angle),
   );
-  const divider = dividerGeometry();
+  const divider = radialSurface(
+    [...pocketProfile, numberBank[0]],
+    -pocketAngle * 0.1875,
+    pocketAngle * 0.1875,
+    6,
+    (radius, angle) => 0.009 + fretLift(radius, angle + pocketAngle * 0.5),
+  );
   const tiles = pocketNumbers.map((_, index) => {
     const surface = pocketMaterials[index === 0 ? 0 : 1 + ((index - 1) % 2)];
     const tile = addPocket(rotor, index, surface, labelSurface, floorGeometry, tileGeometry);
@@ -479,9 +526,9 @@ export function createWheel(scene: Scene) {
   addRing(
     rotor,
     [
-      [1.731, 0.453],
-      [1.805, 0.41],
-      [1.858, 0.391],
+      [1.6, 0.416],
+      [1.7, 0.398],
+      [1.78, 0.387],
     ],
     brassMetal,
   );
@@ -491,9 +538,9 @@ export function createWheel(scene: Scene) {
   addRing(
     rotor,
     [
-      [1.555, 0.543],
-      [1.582, 0.525],
-      [1.612, 0.509],
+      [1.484, 0.432],
+      [1.527, 0.426],
+      [1.56, 0.422],
     ],
     bronze,
   );
@@ -501,10 +548,10 @@ export function createWheel(scene: Scene) {
   addRing(
     rotor,
     [
-      [0.502, 0.925],
-      [0.528, 0.923],
-      [0.546, 0.917],
-      [0.571, 0.908],
+      [0.502, 0.598],
+      [0.528, 0.595],
+      [0.546, 0.593],
+      [0.571, 0.588],
     ],
     bronze,
   );
@@ -519,12 +566,12 @@ export function createWheel(scene: Scene) {
       [0.164, 1.475],
       [0.113, 1.446],
       [0.094, 1.24],
-      [0.158, 1.183],
-      [0.22, 1.15],
-      [0.235, 1.023],
-      [0.288, 0.969],
-      [0.486, 0.937],
-      [0.505, 0.917],
+      [0.142, 1.12],
+      [0.16, 0.93],
+      [0.185, 0.74],
+      [0.285, 0.643],
+      [0.486, 0.598],
+      [0.505, 0.596],
     ],
     brassMetal,
   );

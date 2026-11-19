@@ -8,7 +8,6 @@ import {
   deflectorAngles,
   deflectorGeometry,
   deflectorRadius,
-  dividerGeometry,
   fullTurn,
   pocketAngle,
   pocketFloor,
@@ -17,19 +16,19 @@ import {
   pocketOuter,
   pocketRise,
   radialSurface,
-  rotorProfile,
+  rotorGeometry,
   trackProfile,
 } from "./wheel";
 
 const launchRadius = 4.01;
 const launchHeight = 1.113;
 const railDrag = 0.225;
-const railExitSpeed = 1.55;
-const descentStart = 3.37;
-const descentEnd = 2.81;
-const pocketApproachSpeed = 3.16;
-const descentDamping = 0.13;
-const pocketDamping = 0.047;
+const railExitSpeed = 1.65;
+const descentStart = 3.31;
+const descentEnd = 2.89;
+const pocketApproachSpeed = 3.15;
+const descentDamping = 0.09;
+const pocketDamping = 0.037;
 const pocketMotionDuration = 5.05;
 const settledSpeed = 0.24;
 const descentRestitution = 0.41;
@@ -59,13 +58,12 @@ export const createRouletteScene: CreateDrawScene = ({
   random,
 }) => {
   const { ball, rotor, highlightPocket } = createWheel(scene);
-  const world = new rapier.World({ x: 0, y: -26, z: 0 });
+  const world = new rapier.World({ x: 0, y: -36, z: 0 });
   const axle = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased());
   const rotation = new Quaternion();
   const inverseRotation = new Quaternion();
 
-  function makeSurface(profile: Parameters<typeof radialSurface>[0], friction: number) {
-    const geometry = radialSurface(profile);
+  function makeSurface(geometry: BufferGeometry, friction: number) {
     const descriptor = rapier.ColliderDesc.trimesh(
       vertexPositions(geometry),
       new Uint32Array(geometry.getIndex()!.array),
@@ -79,37 +77,24 @@ export const createRouletteScene: CreateDrawScene = ({
   }
 
   world.createCollider(
-    makeSurface(trackProfile, 0.003)
+    makeSurface(radialSurface(trackProfile), 0.003)
       .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
       .setRestitution(0)
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
   );
   const rotorFloor = world.createCollider(
-    makeSurface(rotorProfile, 0.018)
+    makeSurface(rotorGeometry(), 0.005)
       .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
-      .setRestitution(0.15)
+      .setRestitution(0.07)
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
     axle,
   );
-  world.createCollider(makeSurface(crownProfile, 0.14).setRestitution(0.13), axle);
-
-  const fret = dividerGeometry();
-  const fretVertices = vertexPositions(fret);
-  fret.dispose();
-  for (let i = 0; i < pocketNumbers.length; i++) {
-    const descriptor = rapier.ColliderDesc.convexHull(fretVertices);
-    if (!descriptor) throw new Error("룰렛 구분 칸을 만들 수 없습니다.");
-    rotation.setFromAxisAngle(up, -(i + 0.5) * pocketAngle);
-    world.createCollider(
-      descriptor
-        .setRotation(rotation)
-        .setFriction(0.02)
-        .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
-        .setRestitution(0.18)
-        .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
-      axle,
-    );
-  }
+  world.createCollider(
+    makeSurface(radialSurface(crownProfile), 0.05)
+      .setRestitution(0.07)
+      .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
+    axle,
+  );
 
   const deflector = deflectorGeometry();
   const deflectorVertices = vertexPositions(deflector);
@@ -123,7 +108,7 @@ export const createRouletteScene: CreateDrawScene = ({
         .setTranslation(deflectorRadius * Math.cos(angle), 0, deflectorRadius * Math.sin(angle))
         .setRotation(rotation)
         .setFriction(0.16)
-        .setRestitution(0.56),
+        .setRestitution(0.16),
     );
   }
 
@@ -157,7 +142,6 @@ export const createRouletteScene: CreateDrawScene = ({
   let railSpeed = 0;
   let touchedPocket = false;
   let pocketMotion = 0;
-  let rollingDirection = 1;
   let incomingVerticalSpeed = 0;
   let onRotor = false;
   let settlingPocket = -1;
@@ -208,11 +192,18 @@ export const createRouletteScene: CreateDrawScene = ({
   }
 
   function guideDescent() {
-    const { x, z } = body.translation();
+    const position = body.translation();
+    const { x, y, z } = position;
     const radius = Math.hypot(x, z);
     if (radius >= descentStart || radius < pocketInner - 2 * ballRadius) return;
 
-    // Below the deflectors, the bank turns the ball inward without losing its tangential speed.
+    // The last CCD manifold may still report contact after the ball has left the bank.
+    const support = world.projectPoint(position, false, undefined, undefined, ballCollider);
+    if (!support || support.point.y >= y) return;
+    const gap = Math.hypot(x - support.point.x, y - support.point.y, z - support.point.z);
+    if (gap > ballRadius + 0.0005) return;
+
+    // The bank guides the ball inward while it has a surface to push against.
     const normalX = x / radius;
     const normalZ = z / radius;
     const velocity = body.linvel();
@@ -222,7 +213,7 @@ export const createRouletteScene: CreateDrawScene = ({
     const minimum = radius * MathUtils.lerp(1.3, pocketApproachSpeed, progress);
     const tangentSpeed = direction * Math.max(tangential * direction, minimum);
     const radial = normalX * velocity.x + normalZ * velocity.z;
-    const inward = radius > 2.38 ? Math.min(radial, -MathUtils.lerp(0.2, 1.75, progress)) : radial;
+    const inward = radius > 2.38 ? Math.min(radial, -MathUtils.lerp(0.2, 6.8, progress)) : radial;
     body.setLinvel(
       {
         x: normalX * inward - normalZ * tangentSpeed,
@@ -233,63 +224,9 @@ export const createRouletteScene: CreateDrawScene = ({
     );
   }
 
-  function dampOuterRebound(dt: number) {
-    const { x, z } = body.translation();
-    const radius = Math.hypot(x, z);
-    if (radius <= deflectorRadius) return;
-
-    const velocity = body.linvel();
-    const outwardSpeed = (x * velocity.x + z * velocity.z) / radius;
-    if (outwardSpeed <= 0) return;
-
-    // The outer bank absorbs an outward bounce without braking motion around the wheel.
-    const resistance = 32 * MathUtils.smoothstep(radius, deflectorRadius, launchRadius);
-    const radialLoss = (outwardSpeed * -Math.expm1(-resistance * dt)) / radius;
-    body.setLinvel(
-      { x: velocity.x - x * radialLoss, y: velocity.y, z: velocity.z - z * radialLoss },
-      true,
-    );
-  }
-
-  function stepPocketMotion(dt: number) {
-    dampOuterRebound(dt);
-    const { x, y, z } = body.translation();
-    const radius = Math.hypot(x, z);
-    if (radius === 0 || radius >= 3.4) return;
-
-    const velocity = body.linvel();
-    // Soften launches from the shoulders while preserving lateral deflections.
-    const vertical = velocity.y > 1.85 ? MathUtils.damp(velocity.y, 1.85, 90, dt) : velocity.y;
-    let tangentialGain = 0;
-    if (
-      pocketMotion < pocketMotionDuration &&
-      radius > pocketInner - ballRadius &&
-      radius < pocketOuter + ballRadius &&
-      y < pocketFloor + pocketRise + ballRadius + 0.052
-    ) {
-      const tangent = (-z * velocity.x + x * velocity.z) / radius + rotorSpeed * radius;
-      if (Math.abs(tangent) > 0.65) rollingDirection = Math.sign(tangent);
-      const remaining = pocketMotionDuration - pocketMotion;
-      const target = MathUtils.lerp(0.82, 1.68, MathUtils.smoothstep(remaining, 0, 0.5));
-      // A little rolling assistance on the floor keeps slow balls crossing the low frets.
-      tangentialGain =
-        rollingDirection * MathUtils.clamp(target - tangent * rollingDirection, 0, 8 * dt);
-    }
-    if (vertical !== velocity.y || tangentialGain !== 0) {
-      body.setLinvel(
-        {
-          x: velocity.x - (z / radius) * tangentialGain,
-          y: vertical,
-          z: velocity.z + (x / radius) * tangentialGain,
-        },
-        true,
-      );
-    }
-  }
-
   function touchesPocketFloor(allowRestingGap = false) {
     let touching = false;
-    const rebounded = incomingVerticalSpeed < 0 && body.linvel().y >= 0;
+    const slowedFall = incomingVerticalSpeed < 0 && body.linvel().y - incomingVerticalSpeed > 0.04;
     world.contactPair(ballCollider, rotorFloor, (manifold, flipped) => {
       // The rotor collider also includes sloped walls beyond the pocket floor.
       for (let i = 0; i < manifold.numContacts() && !touching; i++) {
@@ -301,12 +238,12 @@ export const createRouletteScene: CreateDrawScene = ({
         if (radius <= pocketInner || radius >= pocketOuter) continue;
         const floorY =
           pocketFloor + (pocketRise * (radius - pocketInner)) / (pocketOuter - pocketInner);
-        if (Math.abs(point.y - floorY) >= 0.01) continue;
+        if (Math.abs(point.y - floorY) >= 0.004) continue;
         // CCD can resolve an impact after the manifold's distance was computed.
         touching =
           allowRestingGap ||
           manifold.contactImpulse(i) > 1e-6 ||
-          (rebounded && localPosition.y - ballRadius <= floorY + 0.006);
+          (slowedFall && localPosition.y - ballRadius <= floorY + 0.006);
       }
     });
     return touching;
@@ -348,10 +285,8 @@ export const createRouletteScene: CreateDrawScene = ({
       onRail = true;
       touchedPocket = false;
       pocketMotion = 0;
-      rollingDirection = Math.sign(railSpeed);
       body.setLinearDamping(descentDamping);
       body.setAngularDamping(0.065);
-      body.setGravityScale(1, true);
       ballCollider.setRestitution(descentRestitution);
       ballRotation.identity();
       body.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
@@ -383,12 +318,11 @@ export const createRouletteScene: CreateDrawScene = ({
 
       // Keep the quaternion continuous across full turns so the axle does not jolt the ball.
       rotorAngle += rotorSpeed * dt;
-      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.12 : 0.055;
+      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.145 : 0.055;
       rotorSpeed *= Math.exp(-brake * dt);
       axle.setNextKinematicRotation(rotation.setFromAxisAngle(up, rotorAngle));
       if (onRail) stepRail(dt);
-      else if (touchedPocket) stepPocketMotion(dt);
-      else guideDescent();
+      else if (!touchedPocket) guideDescent();
       incomingVerticalSpeed = body.linvel().y;
     },
     afterStep(dt) {
@@ -423,18 +357,17 @@ export const createRouletteScene: CreateDrawScene = ({
 
       const withinPocket =
         pocketMotion >= pocketMotionDuration &&
-        radius > pocketInner &&
-        radius < pocketOuter &&
+        radius > pocketInner - 0.025 &&
+        radius < pocketOuter + 0.025 &&
         y < pocketFloor + pocketRise + ballRadius + 0.024 &&
-        distanceToDivider > ballRadius * 0.5 &&
+        distanceToDivider > 0.025 &&
         relativeSpeed < settledSpeed;
 
       const touchingFloor = (mayTouchFloor || withinPocket) && touchesPocketFloor(touchedPocket);
       if (!touchedPocket && touchingFloor) {
         touchedPocket = true;
         body.setLinearDamping(pocketDamping);
-        body.setAngularDamping(0.02);
-        body.setGravityScale(0.9, true);
+        body.setAngularDamping(0.019);
         ballCollider.setRestitution(0.18);
       }
 

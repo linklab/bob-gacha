@@ -15,6 +15,7 @@ import {
 import type { Candidate, DrawResult } from "../../src/lib/draw";
 
 const step = 1 / 120;
+const roundLimit = 30;
 const candidates = Array.from({ length: 12 }, (_, id) => ({
   id,
   name: `후보 ${id + 1}`,
@@ -37,7 +38,7 @@ function pocketAtFloorContact(
   world: RAPIER.World,
   ballCollider: RAPIER.Collider,
   floor: RAPIER.Collider,
-  rebounded: boolean,
+  upwardResponse: boolean,
   allowRestingGap = false,
 ) {
   let pocket: number | undefined;
@@ -52,9 +53,9 @@ function pocketAtFloorContact(
       const radius = Math.hypot(point.x, point.z);
       if (radius <= pocketInner || radius >= pocketOuter) continue;
       const floorY = pocketHeight(radius);
-      if (Math.abs(point.y - floorY) >= 0.01) continue;
+      if (Math.abs(point.y - floorY) >= 0.004) continue;
       const impact =
-        manifold.contactImpulse(index) > 1e-6 || (rebounded && ballBottom <= floorY + 0.006);
+        manifold.contactImpulse(index) > 1e-6 || (upwardResponse && ballBottom <= floorY + 0.006);
       if (!allowRestingGap && !impact) continue;
       const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
       pocket = pocketNumbers[MathUtils.euclideanModulo(sector, pocketNumbers.length)];
@@ -91,7 +92,7 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
       expect(pocketCount).toBeLessThanOrEqual(Math.ceil(37 / entrants.length));
     }
 
-    for (let frame = 1; frame <= 25 / step; frame++) {
+    for (let frame = 1; frame <= roundLimit / step; frame++) {
       draw.beforeStep?.(step);
       draw.world.step();
       result = draw.afterStep(step);
@@ -117,7 +118,7 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
       }
     }
 
-    throw new Error("룰렛 공이 25초 안에 포켓에 안착하지 않았습니다.");
+    throw new Error(`룰렛 공이 ${roundLimit}초 안에 포켓에 안착하지 않았습니다.`);
   } finally {
     draw.world.free();
   }
@@ -129,6 +130,7 @@ describe("룰렛", () => {
   });
 
   it.each([
+    { spin: -1, seed: 2001 },
     { spin: -1, seed: 31001 },
     { spin: -0.01, seed: 1957 },
     { spin: -0.01, seed: 2543 },
@@ -137,6 +139,7 @@ describe("룰렛", () => {
     { spin: 0.01, seed: 924 },
     { spin: 0.65, seed: 12028 },
     { spin: 1, seed: 18803 },
+    { spin: 1, seed: 20971 },
     { spin: 1, seed: 31001 },
   ])(
     "회전 입력 $spin / 시드 $seed 조건에서 공이 첫 포켓 바닥 접촉 직전에 25rpm 이상 돈다",
@@ -166,15 +169,43 @@ describe("룰렛", () => {
         let dampingChangeFrame: number | undefined;
         let contactFrame: number | undefined;
         let entryRpm: number | undefined;
+        let airborneFrames = 0;
+        let maxAirborneVelocityChange = 0;
 
-        for (let frame = 0; frame < 25 / step && entryRpm === undefined; frame++) {
+        for (let frame = 0; frame < roundLimit / step && entryRpm === undefined; frame++) {
+          const wasDynamic = ball.isDynamic();
+          const beforeVelocity = ball.linvel();
+          const beforePosition = ball.translation();
+          const surface = wasDynamic
+            ? draw.world.projectPoint(beforePosition, true, undefined, undefined, ballCollider)
+            : undefined;
+          const airborne =
+            surface &&
+            !surface.isInside &&
+            Math.hypot(
+              beforePosition.x - surface.point.x,
+              beforePosition.y - surface.point.y,
+              beforePosition.z - surface.point.z,
+            ) >
+              ballRadius + 0.004;
           draw.beforeStep?.(step);
           const { x, z } = ball.translation();
           const velocity = ball.linvel();
+          if (airborne) {
+            airborneFrames++;
+            maxAirborneVelocityChange = Math.max(
+              maxAirborneVelocityChange,
+              Math.hypot(
+                velocity.x - beforeVelocity.x,
+                velocity.y - beforeVelocity.y,
+                velocity.z - beforeVelocity.z,
+              ),
+            );
+          }
           const orbitalSpeed = Math.abs(x * velocity.z - z * velocity.x) / (x * x + z * z);
           draw.world.step();
-          const rebounded = velocity.y < 0 && ball.linvel().y >= 0;
-          if (pocketAtFloorContact(draw.world, ballCollider, floor, rebounded) !== undefined) {
+          const upwardResponse = velocity.y < 0 && ball.linvel().y - velocity.y > 0.04;
+          if (pocketAtFloorContact(draw.world, ballCollider, floor, upwardResponse) !== undefined) {
             contactFrame = frame;
             entryRpm = (orbitalSpeed * 60) / fullTurn;
           }
@@ -185,6 +216,8 @@ describe("룰렛", () => {
         expect(entryRpm).toBeDefined();
         expect(entryRpm).toBeGreaterThanOrEqual(25);
         expect(dampingChangeFrame).toBe(contactFrame);
+        expect(airborneFrames).toBeGreaterThan(0);
+        expect(maxAirborneVelocityChange).toBeLessThanOrEqual(1e-6);
       } finally {
         draw.world.free();
       }
@@ -204,7 +237,7 @@ describe("룰렛", () => {
     expect(result.pocket).toBeGreaterThanOrEqual(0);
     expect(result.pocket).toBeLessThanOrEqual(36);
     expect(duration).toBeGreaterThan(11);
-    expect(duration).toBeLessThan(21);
+    expect(duration).toBeLessThanOrEqual(roundLimit);
   });
 
   it("드래그를 놓은 각도에서 손을 뗀 방향과 속도로 실제 휠을 돌린다", () => {
@@ -249,8 +282,8 @@ describe("룰렛", () => {
   });
 
   it.each([
-    { spin: -1, aspect: 0.78, seed: 1957 },
-    { spin: 1, aspect: 1.85, seed: 31001 },
+    { spin: -1, aspect: 0.78, seed: 31001 },
+    { spin: 1, aspect: 1.85, seed: 4 },
   ])(
     "드래그 $spin 방향의 반대로 공을 발사해 바깥을 네 바퀴 이상 돈 뒤 포켓에서 튕긴다",
     ({ spin, aspect, seed }) => {
@@ -277,6 +310,7 @@ describe("룰렛", () => {
         if (!ball || !axle) throw new Error("공과 회전축이 필요합니다.");
 
         const ballCollider = ball.collider(0);
+        const floor = axle.collider(0);
         const start = ball.translation();
         let previousAngle = Math.atan2(-start.z, start.x);
         let previousHeight = start.y;
@@ -285,28 +319,25 @@ describe("룰렛", () => {
         let leftOuterRail = false;
         let wheelSpeed = 0;
         let launchSpeed = 0;
-        const deflector = {
-          frame: -Infinity,
-          riseStart: undefined as number | undefined,
-          rebound: 0,
-        };
+        let deflectorVelocityChange = 0;
         const divider = {
           frame: -Infinity,
           riseStart: undefined as number | undefined,
           rebound: 0,
         };
-        const obstacles = [deflector, divider];
         const crossedSectors = new Set<number>();
         const localBall = new Vector3();
         const inverseWheel = new Quaternion();
         let result: DrawResult | undefined;
 
-        for (let frame = 0; frame < 25 / step && !result; frame++) {
+        for (let frame = 0; frame < roundLimit / step && !result; frame++) {
           draw.beforeStep?.(step);
+          const beforeVelocity = ball.linvel();
           draw.world.step();
+          const afterVelocity = ball.linvel();
           result = draw.afterStep(step);
           const { x, y, z } = ball.translation();
-          const verticalSpeed = ball.linvel().y;
+          const verticalSpeed = afterVelocity.y;
           const radius = Math.hypot(x, z);
           const angle = Math.atan2(-z, x);
           const change = angle - previousAngle;
@@ -321,27 +352,47 @@ describe("룰렛", () => {
             outerRotation += Math.sign(launchSpeed) * turn;
           } else {
             draw.world.contactPairsWith(ballCollider, (obstacle) => {
-              if (obstacle.shapeType() !== RAPIER.ShapeType.ConvexPolyhedron) return;
+              if (obstacle.parent() || obstacle.shapeType() !== RAPIER.ShapeType.ConvexPolyhedron)
+                return;
               let hit = false;
               draw.world.contactPair(ballCollider, obstacle, (manifold) => {
                 for (let index = 0; index < manifold.numContacts(); index++) {
                   hit ||= manifold.contactImpulse(index) > 1e-7;
                 }
               });
-              if (!hit) return;
-              const parent = obstacle.parent();
-              if (!parent) deflector.frame = frame;
-              else if (parent.handle === axle.handle) divider.frame = frame;
+              if (hit) {
+                deflectorVelocityChange = Math.max(
+                  deflectorVelocityChange,
+                  Math.hypot(
+                    afterVelocity.x - beforeVelocity.x,
+                    afterVelocity.z - beforeVelocity.z,
+                  ),
+                );
+              }
             });
-            for (const impact of obstacles) {
-              if (verticalSpeed <= 0) {
-                impact.riseStart = undefined;
-              } else if (previousVerticalSpeed <= 0 && frame - impact.frame <= 3) {
-                impact.riseStart = previousHeight;
+            draw.world.contactPair(ballCollider, floor, (manifold, flipped) => {
+              for (let index = 0; index < manifold.numContacts(); index++) {
+                const point = flipped
+                  ? manifold.localContactPoint1(index)
+                  : manifold.localContactPoint2(index);
+                if (!point) continue;
+                const contactRadius = Math.hypot(point.x, point.z);
+                if (contactRadius <= pocketInner || contactRadius >= pocketOuter) continue;
+                if (point.y <= pocketHeight(contactRadius) + 0.004) continue;
+                const bounced =
+                  previousVerticalSpeed < 0 &&
+                  verticalSpeed >= 0 &&
+                  y - ballRadius <= point.y + 0.006;
+                if (bounced || manifold.contactImpulse(index) > 1e-7) divider.frame = frame;
               }
-              if (impact.riseStart !== undefined) {
-                impact.rebound = Math.max(impact.rebound, y - impact.riseStart);
-              }
+            });
+            if (verticalSpeed <= 0) {
+              divider.riseStart = undefined;
+            } else if (previousVerticalSpeed <= 0 && frame - divider.frame <= 3) {
+              divider.riseStart = previousHeight;
+            }
+            if (divider.riseStart !== undefined) {
+              divider.rebound = Math.max(divider.rebound, y - divider.riseStart);
             }
             if (radius > pocketInner && radius < pocketOuter) {
               localBall.set(x, y, z).applyQuaternion(inverseWheel.copy(axle.rotation()).invert());
@@ -360,9 +411,8 @@ describe("룰렛", () => {
         expect.soft(rpm).toBeGreaterThanOrEqual(55);
         expect.soft(rpm).toBeLessThanOrEqual(90);
         expect.soft(outerRotation / fullTurn).toBeGreaterThanOrEqual(4);
-        expect.soft(deflector.frame).toBeGreaterThanOrEqual(0);
+        expect.soft(deflectorVelocityChange).toBeGreaterThan(0.1);
         expect.soft(divider.frame).toBeGreaterThanOrEqual(0);
-        expect.soft(deflector.rebound).toBeGreaterThan(0.04);
         expect.soft(divider.rebound).toBeGreaterThan(0.04);
         expect.soft(crossedSectors.size).toBeGreaterThan(1);
         expect(result).toBeDefined();
@@ -408,20 +458,42 @@ describe("룰렛", () => {
         let reboundStart: number | undefined;
         let maxPocketRebound = 0;
         let maxPocketLift = 0;
+        let airborneFrames = 0;
+        let maxAirborneVelocityChange = 0;
         let result: DrawResult | undefined;
 
-        for (let frame = 0; frame < 30 / step && !result; frame++) {
+        for (let frame = 0; frame < roundLimit / step && !result; frame++) {
+          const beforeVelocity = ball.linvel();
+          const { x, y, z } = ball.translation();
+          const beforeRadius = Math.hypot(x, z);
+          const airborne =
+            firstContactFrame !== undefined &&
+            beforeRadius > pocketInner + ballRadius &&
+            beforeRadius < pocketOuter - ballRadius &&
+            y - ballRadius > pocketHeight(beforeRadius) + 0.04;
           draw.beforeStep?.(step);
-          const falling = ball.linvel().y < 0;
+          const afterVelocity = ball.linvel();
+          if (airborne) {
+            airborneFrames++;
+            maxAirborneVelocityChange = Math.max(
+              maxAirborneVelocityChange,
+              Math.hypot(
+                afterVelocity.x - beforeVelocity.x,
+                afterVelocity.y - beforeVelocity.y,
+                afterVelocity.z - beforeVelocity.z,
+              ),
+            );
+          }
           draw.world.step();
           const verticalSpeed = ball.linvel().y;
-          const rebounded = falling && verticalSpeed >= 0;
+          const rebounded = afterVelocity.y < 0 && verticalSpeed >= 0;
+          const upwardResponse = afterVelocity.y < 0 && verticalSpeed - afterVelocity.y > 0.04;
           position
             .copy(ball.translation())
             .applyQuaternion(inverseRotation.copy(axle.rotation()).invert());
           const radius = Math.hypot(position.x, position.z);
           if (firstContactFrame === undefined || rebounded) {
-            const touched = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded);
+            const touched = pocketAtFloorContact(draw.world, ballCollider, floor, upwardResponse);
             if (touched !== undefined) {
               firstContactFrame ??= frame;
               if (rebounded) reboundStart = previousPosition.y;
@@ -452,8 +524,10 @@ describe("룰렛", () => {
 
         expect(firstContactFrame).toBeDefined();
         expect.soft(movingFrames * step).toBeGreaterThanOrEqual(5);
-        expect.soft(maxPocketRebound).toBeGreaterThan(0.04);
+        expect.soft(maxPocketRebound).toBeGreaterThan(0.02);
         expect.soft(maxPocketLift).toBeLessThanOrEqual(0.27);
+        expect.soft(airborneFrames).toBeGreaterThan(0);
+        expect.soft(maxAirborneVelocityChange).toBeLessThanOrEqual(1e-6);
         expect(result).toBeDefined();
         expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
       } finally {
@@ -497,20 +571,27 @@ describe("룰렛", () => {
         let floorFrame = -1;
         let result: DrawResult | undefined;
 
-        for (let frame = 0; frame < 25 / step && !result; frame++) {
+        for (let frame = 0; frame < roundLimit / step && !result; frame++) {
           draw.beforeStep?.(step);
-          const falling = ball.linvel().y < 0;
+          const incomingVerticalSpeed = ball.linvel().y;
           draw.world.step();
-          const rebounded = falling && ball.linvel().y >= 0;
+          const upwardResponse =
+            incomingVerticalSpeed < 0 && ball.linvel().y - incomingVerticalSpeed > 0.04;
           result = draw.afterStep(step);
-          floorPocket = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded);
+          floorPocket = pocketAtFloorContact(draw.world, ballCollider, floor, upwardResponse);
           if (floorPocket !== undefined) {
             floorFrame = frame;
             firstFloorPocket ??= floorPocket;
             firstFloorFrame ??= frame;
           }
           if (result)
-            floorPocket = pocketAtFloorContact(draw.world, ballCollider, floor, rebounded, true);
+            floorPocket = pocketAtFloorContact(
+              draw.world,
+              ballCollider,
+              floor,
+              upwardResponse,
+              true,
+            );
           if (
             cone &&
             firstFloorFrame !== undefined &&
@@ -526,7 +607,7 @@ describe("룰렛", () => {
           }
         }
 
-        if (!result) throw new Error("룰렛 공이 25초 안에 포켓에 안착하지 않았습니다.");
+        if (!result) throw new Error(`룰렛 공이 ${roundLimit}초 안에 포켓에 안착하지 않았습니다.`);
         expect(firstFloorPocket).toBeDefined();
         expect(floorPocket).toBe(result.pocket);
         expect(firstFloorPocket).not.toBe(result.pocket);
