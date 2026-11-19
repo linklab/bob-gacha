@@ -30,4 +30,4 @@ mise exec -- pnpm dev
 
 ## 당첨 효과음
 
-룰렛과 구슬 경주의 당첨 효과음은 [Fupi의 Win Jingle (WinBrass)](https://opengameart.org/content/win-jingle), [audiosmedia의 Party horn](https://freesound.org/people/audiosmedia/sounds/170583/), [dr_skitz의 yay](https://freesound.org/people/dr_skitz/sounds/353923/)를 동시에 재생하도록 편집한 것입니다. 세 원본은 모두 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/deed.ko)입니다.
+룰렛과 구슬 경주의 당첨 효과음은 [Fupi의 Win Jingle (WinBrass)](https://opengameart.org/content/win-jingle)와 [dr_skitz의 yay](https://freesound.org/people/dr_skitz/sounds/353923/)를 동시에 재생하도록 편집한 것입니다. 두 원본은 모두 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/deed.ko)입니다.
