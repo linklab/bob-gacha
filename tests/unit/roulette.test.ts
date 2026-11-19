@@ -5,10 +5,8 @@ import { createRouletteScene } from "../../src/features/roulette/roulette";
 import {
   ballRadius,
   fullTurn,
-  pocketAngle,
   pocketFloor,
   pocketInner,
-  pocketCount,
   pocketOuter,
   pocketRise,
 } from "../../src/features/roulette/wheel";
@@ -16,6 +14,8 @@ import type { Candidate, DrawResult } from "../../src/lib/draw";
 
 const step = 1 / 120;
 const roundLimit = 30;
+const testPocketCount = 36;
+const testPocketAngle = fullTurn / testPocketCount;
 const candidates = Array.from({ length: 12 }, (_, id) => ({
   id,
   name: `후보 ${id + 1}`,
@@ -57,8 +57,8 @@ function pocketAtFloorContact(
       const impact =
         manifold.contactImpulse(index) > 1e-6 || (upwardResponse && ballBottom <= floorY + 0.006);
       if (!allowRestingGap && !impact) continue;
-      const sector = Math.round(Math.atan2(point.z, point.x) / pocketAngle);
-      pocket = MathUtils.euclideanModulo(sector, pocketCount);
+      const sector = Math.round(Math.atan2(point.z, point.x) / testPocketAngle);
+      pocket = MathUtils.euclideanModulo(sector, testPocketCount);
     }
   });
   return pocket;
@@ -80,19 +80,18 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
     draw.start();
     const rotor = scene.getObjectByName("roulette-rotor");
     if (!rotor) throw new Error("룰렛 휠을 찾을 수 없습니다.");
-    const sectors = entrants.map((entrant) => {
-      const sector = rotor.getObjectByName(`roulette-candidate-${entrant.id}`);
-      if (!sector) throw new Error("후보 구역을 찾을 수 없습니다.");
-      return sector;
-    });
-    const coveredPockets = sectors.reduce<string[]>((names, sector) => {
-      const pockets = sector.children.filter(({ name }) => name.startsWith("roulette-pocket-"));
-      expect(pockets.length).toBeGreaterThanOrEqual(Math.floor(pocketCount / entrants.length));
-      expect(pockets.length).toBeLessThanOrEqual(Math.ceil(pocketCount / entrants.length));
-      return names.concat(pockets.map(({ name }) => name));
-    }, []);
-    expect(new Set(coveredPockets).size).toBe(pocketCount);
-    expect(coveredPockets).toHaveLength(pocketCount);
+    const pockets = rotor.children.filter(({ name }) => name.startsWith("roulette-pocket-"));
+    const labels = pockets.map((pocket) => pocket.userData.candidateId as number);
+    const cycle = labels.slice(0, entrants.length);
+    expect([...cycle].sort((a, b) => a - b)).toEqual(
+      entrants.map(({ id }) => id).sort((a, b) => a - b),
+    );
+    expect(pockets.length % entrants.length).toBe(0);
+    expect(pockets.length).toBeGreaterThanOrEqual(33);
+    expect(pockets.length).toBeLessThanOrEqual(40);
+    expect(labels).toEqual(
+      Array.from({ length: pockets.length }, (_, index) => cycle[index % cycle.length]),
+    );
 
     for (let frame = 1; frame <= roundLimit / step; frame++) {
       draw.beforeStep?.(step);
@@ -103,18 +102,18 @@ function runDraw(entrants: readonly Candidate[], random: () => number) {
         draw.render();
         const ball = scene.getObjectByName("roulette-ball");
         const pocket = rotor.getObjectByName(`roulette-pocket-${result.pocketIndex}`);
-        expect(pocket?.parent?.name).toBe(`roulette-candidate-${result.candidate.id}`);
+        expect(pocket?.userData.candidateId).toBe(result.candidate.id);
         if (!ball || !pocket) throw new Error("화면에서 공 또는 포켓을 찾을 수 없습니다.");
         scene.updateMatrixWorld(true);
         const localBall = rotor.worldToLocal(ball.position.clone());
-        const pocketAngle = Math.atan2(pocket.position.z, pocket.position.x);
+        const pocketDirection = Math.atan2(pocket.position.z, pocket.position.x);
         const ballAngle = Math.atan2(localBall.z, localBall.x);
         const difference = Math.atan2(
-          Math.sin(ballAngle - pocketAngle),
-          Math.cos(ballAngle - pocketAngle),
+          Math.sin(ballAngle - pocketDirection),
+          Math.cos(ballAngle - pocketDirection),
         );
-        expect(Math.abs(difference)).toBeLessThan(Math.PI / 37);
-        return { result, duration: frame * step };
+        expect(Math.abs(difference)).toBeLessThan(Math.PI / pockets.length);
+        return { result, duration: frame * step, pocketCount: pockets.length };
       }
     }
 
@@ -136,7 +135,7 @@ describe("룰렛", () => {
       scene: new Scene(),
       camera,
       candidates: candidates.slice(0, 6),
-      random: seededRandom(72),
+      random: seededRandom(3),
     });
     draw.world.timestep = step;
 
@@ -152,12 +151,12 @@ describe("룰렛", () => {
         heights.push(camera.position.y);
       }
 
-      // Seed 72 first settles around 17.58 seconds and moves again around 18.24 seconds.
+      // On the 36-pocket wheel, seed 3 triggers the close-up at 19.05s and moves again at 19.275s.
       const heightAt = (time: number) => heights[Math.round(time / step)];
-      expect(result?.pocketIndex).toBe(7);
-      expect(heightAt(17.8)).toBeCloseTo(heightAt(17.5), 3);
-      expect(heightAt(18.2)).toBeLessThan(heightAt(17.8) - 0.4);
-      const closeUp = heights.slice(Math.round(17.8 / step));
+      expect(result?.pocketIndex).toBe(5);
+      expect(heightAt(19.04)).toBeCloseTo(heightAt(18.74), 3);
+      expect(heightAt(19.45)).toBeLessThan(heightAt(19.04) - 0.4);
+      const closeUp = heights.slice(Math.round(19.04 / step));
       const largestZoomOut = Math.max(
         ...closeUp.slice(1).map((height, index) => height - closeUp[index]),
       );
@@ -264,13 +263,19 @@ describe("룰렛", () => {
 
   it.each([
     [2, 924],
-    [7, 1957],
-    [12, 31001],
     [3, 19233331],
+    [4, 31001],
+    [5, 31001],
+    [6, 31001],
+    [7, 1957],
     [8, 538533268],
+    [9, 31001],
+    [10, 31001],
+    [11, 31001],
+    [12, 31001],
   ])("후보 %i명일 때 정해진 시간 안에 공이 들어간 포켓을 반환한다", (count, seed) => {
     const entrants = candidates.slice(0, count);
-    const { result, duration } = runDraw(entrants, seededRandom(seed));
+    const { result, duration, pocketCount } = runDraw(entrants, seededRandom(seed));
     expect(entrants).toContain(result.candidate);
     expect(result.pocketIndex).toBeGreaterThanOrEqual(0);
     expect(result.pocketIndex).toBeLessThan(pocketCount);
@@ -320,8 +325,8 @@ describe("룰렛", () => {
   });
 
   it.each([
-    { spin: -1, aspect: 0.78, seed: 31001 },
-    { spin: 1, aspect: 1.85, seed: 4 },
+    { spin: -1, aspect: 0.78, seed: 3 },
+    { spin: 1, aspect: 1.85, seed: 6 },
   ])(
     "드래그 $spin 방향의 반대로 공을 발사해 바깥을 네 바퀴 이상 돈 뒤 포켓에서 튕긴다",
     ({ spin, aspect, seed }) => {
@@ -434,7 +439,7 @@ describe("룰렛", () => {
             }
             if (radius > pocketInner && radius < pocketOuter) {
               localBall.set(x, y, z).applyQuaternion(inverseWheel.copy(axle.rotation()).invert());
-              const sector = Math.round(Math.atan2(localBall.z, localBall.x) / pocketAngle);
+              const sector = Math.round(Math.atan2(localBall.z, localBall.x) / testPocketAngle);
               crossedSectors.add(sector);
             }
           }

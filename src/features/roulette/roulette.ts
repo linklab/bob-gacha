@@ -9,8 +9,6 @@ import {
   deflectorGeometry,
   deflectorRadius,
   fullTurn,
-  pocketAngle,
-  pocketCount,
   pocketFloor,
   pocketInner,
   pocketOuter,
@@ -19,7 +17,6 @@ import {
   rotorGeometry,
   trackProfile,
 } from "./wheel";
-import type { WheelSector } from "./wheel";
 
 const launchRadius = 4.01;
 const launchHeight = 1.113;
@@ -36,20 +33,19 @@ const closeUpDelay = 0.24;
 const descentRestitution = 0.41;
 const up = new Vector3(0, 1, 0);
 
-function createSectors(candidates: readonly Candidate[], random: () => number): WheelSector[] {
+function createPocketLayout(candidates: readonly Candidate[], random: () => number): Candidate[] {
   const shuffled = [...candidates];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const index = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[index]] = [shuffled[index], shuffled[i]];
   }
 
-  // Shuffling gives every candidate the same chance of getting an extra physical pocket.
-  const pocketsPerCandidate = pocketCount / shuffled.length;
-  return shuffled.map((candidate, index) => ({
-    candidate,
-    firstPocket: Math.round(index * pocketsPerCandidate),
-    pastLastPocket: Math.round((index + 1) * pocketsPerCandidate),
-  }));
+  // Use complete cycles so each candidate gets the same number of pockets.
+  const cycles = Math.round(37 / shuffled.length);
+  return Array.from(
+    { length: cycles * shuffled.length },
+    (_, index) => shuffled[index % shuffled.length],
+  );
 }
 
 function vertexPositions(geometry: BufferGeometry) {
@@ -64,8 +60,10 @@ export const createRouletteScene: CreateDrawScene = ({
   random,
   sound,
 }) => {
-  const sectors = createSectors(candidates, random);
-  const { ball, rotor, highlightSector } = createWheel(scene, sectors);
+  const pockets = createPocketLayout(candidates, random);
+  const pocketCount = pockets.length;
+  const pocketAngle = fullTurn / pocketCount;
+  const { ball, rotor, highlightPocket } = createWheel(scene, pockets);
   const world = new rapier.World({ x: 0, y: -36, z: 0 });
   const axle = world.createRigidBody(rapier.RigidBodyDesc.kinematicPositionBased());
   const rotation = new Quaternion();
@@ -91,7 +89,7 @@ export const createRouletteScene: CreateDrawScene = ({
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
   );
   const rotorFloor = world.createCollider(
-    makeSurface(rotorGeometry(), 0.005)
+    makeSurface(rotorGeometry(pocketCount), 0.005)
       .setFrictionCombineRule(rapier.CoefficientCombineRule.Min)
       .setRestitution(0.07)
       .setRestitutionCombineRule(rapier.CoefficientCombineRule.Min),
@@ -459,9 +457,8 @@ export const createRouletteScene: CreateDrawScene = ({
       if (settledTime < 0.68 || Math.abs(rotorSpeed) > 0.13) return undefined;
 
       active = false;
-      const winner = sectors.findIndex(({ pastLastPocket }) => pocket < pastLastPocket);
-      highlightSector(winner);
-      return { candidate: sectors[winner].candidate, pocketIndex: pocket };
+      highlightPocket(pocket);
+      return { candidate: pockets[pocket], pocketIndex: pocket };
     },
     render() {
       ball.position.copy(body.translation());

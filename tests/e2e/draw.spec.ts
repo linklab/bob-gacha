@@ -61,11 +61,16 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect(page.getByRole("heading")).toHaveText("Bob Gacha");
   const wheelLabels = async () => {
     const labels = await page.locator("html").getAttribute("data-wheel-labels");
-    return (JSON.parse(labels ?? "[]") as string[]).sort();
+    return JSON.parse(labels ?? "[]") as string[];
   };
-  await expect
-    .poll(wheelLabels)
-    .toEqual(["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"].sort());
+  async function expectAlternatingLabels(names: string[]) {
+    await expect.poll(async () => (await wheelLabels()).length).toBe(36);
+    const labels = await wheelLabels();
+    const cycle = labels.slice(0, names.length);
+    expect([...cycle].sort()).toEqual([...names].sort());
+    expect(labels).toEqual(Array.from({ length: 36 }, (_, index) => cycle[index % cycle.length]));
+  }
+  await expectAlternatingLabels(["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"]);
   const summary = page.locator(".candidate-summary");
   await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
   const edit = page.getByRole("button", { name: /^후보 \d+개 · 편집$/ });
@@ -76,7 +81,7 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await replaceCandidates(dialog, names.join("\n"));
   await apply.click();
   await expect(summary).toHaveText("김밥 · 비빔밥 · 우동 외 1개");
-  await expect.poll(wheelLabels).toEqual([...names].sort());
+  await expectAlternatingLabels(names);
   await expect(edit).toBeFocused();
 
   const start = page.getByRole("button", { name: "룰렛 돌리기", exact: true });
