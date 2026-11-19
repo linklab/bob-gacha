@@ -3,6 +3,7 @@ import {
   Group,
   MathUtils,
   Mesh,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   SphereGeometry,
   Sprite,
@@ -71,13 +72,13 @@ export const createMarbleRaceScene: CreateDrawScene = ({
     const color = new Color(candidate.color);
     const marble = new Mesh(
       sphere,
-      new MeshStandardMaterial({ color, roughness: 0.25, metalness: 0.16 }),
+      new MeshPhysicalMaterial({ color, roughness: 0.29, clearcoat: 1, clearcoatRoughness: 0.2 }),
     );
     const band = new Mesh(
       stripe,
       new MeshStandardMaterial({
-        color: color.clone().lerp(stripeHighlight, 0.44),
-        roughness: 0.24,
+        color: color.clone().lerp(stripeHighlight, 0.57),
+        roughness: 0.28,
       }),
     );
     band.rotation.z = Math.PI / 5;
@@ -90,7 +91,7 @@ export const createMarbleRaceScene: CreateDrawScene = ({
       ? new Sprite(new SpriteMaterial({ map: texture, depthWrite: false }))
       : undefined;
     if (number) {
-      number.scale.setScalar(0.56);
+      number.scale.setScalar(0.64);
       number.center.set(0.5, 0);
       scene.add(number);
     }
@@ -105,10 +106,17 @@ export const createMarbleRaceScene: CreateDrawScene = ({
   const facing = new Vector3();
 
   function render() {
-    const lookY = trackHeight(cameraZ) + 0.46;
-    const scale = Math.max(1, 1.42 / aspect);
-    camera.position.set(6.6 * scale, lookY + 14.4 * scale, cameraZ - 13.2 * scale);
-    camera.lookAt(0, lookY, cameraZ);
+    const wide = MathUtils.smoothstep(aspect, 1.34, 1.9);
+    const overview = wide * (1 - MathUtils.smoothstep(cameraZ, 6, 22));
+    const scale = Math.max(1.08, 1.32 / aspect);
+    const lookZ = cameraZ + MathUtils.lerp(1.1, 13.9, overview);
+    const lookY = trackHeight(lookZ) + MathUtils.lerp(0.32, -5, overview);
+    camera.position.set(
+      MathUtils.lerp(MathUtils.lerp(-8.1, -11, wide) * scale, -27, overview),
+      lookY + MathUtils.lerp(13.3 * scale, 33, overview),
+      lookZ - MathUtils.lerp(13.7 * scale, 15.5, overview),
+    );
+    camera.lookAt(0, lookY, lookZ);
     lightAt(cameraZ);
 
     for (const { body, object, number } of racers) {

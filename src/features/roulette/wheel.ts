@@ -3,12 +3,16 @@ import {
   CanvasTexture,
   Color,
   DirectionalLight,
+  EquirectangularReflectionMapping,
   Float32BufferAttribute,
   Group,
   HemisphereLight,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
+  PlaneGeometry,
+  ShadowMaterial,
   SphereGeometry,
   SRGBColorSpace,
 } from "three";
@@ -44,9 +48,8 @@ export const rotorProfile = [
   [3.145, 0.606],
 ] as const;
 
-const brass = "#c39a57";
-const ivory = "#f5ead7";
-const tileColors = ["#287455", "#a73930", "#212624"];
+const ivory = "#fff6e7";
+const tileColors = ["#147257", "#9e2c42", "#171a21"];
 const pocketCenter = (pocketInner + pocketOuter) / 2;
 
 type Profile = readonly (readonly [number, number])[];
@@ -140,6 +143,66 @@ function addRing(parent: Group, profile: Profile, surface: MeshStandardMaterial)
   return addMesh(parent, radialSurface(profile), surface);
 }
 
+function makeWoodGrain() {
+  if (typeof document === "undefined") return undefined;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 96;
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+
+  const grain = context.createImageData(canvas.width, canvas.height);
+  for (let x = 0; x < canvas.width; x++) {
+    const angle = (x / canvas.width) * fullTurn;
+    const curve = Math.sin(angle * 3) * 4 + Math.sin(angle * 9) * 1.8;
+    for (let y = 0; y < canvas.height; y++) {
+      const row = y + curve;
+      const shade =
+        Math.sin(row * 0.55) * 3.6 +
+        Math.sin(row * 1.62 + angle * 25) * 1.6 +
+        Math.sin(row * 0.11) * 3;
+      const pixel = (y * canvas.width + x) * 4;
+      grain.data[pixel] = 83 + shade;
+      grain.data[pixel + 1] = 44 + shade;
+      grain.data[pixel + 2] = 50 + shade;
+      grain.data[pixel + 3] = 255;
+    }
+  }
+  context.putImageData(grain, 0, 0);
+
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+function makeStudioReflection() {
+  if (typeof document === "undefined") return undefined;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 128;
+  const context = canvas.getContext("2d");
+  if (!context) return undefined;
+
+  const ambient = context.createLinearGradient(0, 0, 0, canvas.height);
+  ambient.addColorStop(0, "#6f727e");
+  ambient.addColorStop(0.46, "#353744");
+  ambient.addColorStop(0.7, "#151319");
+  ambient.addColorStop(1, "#242129");
+  context.fillStyle = ambient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#fff1e5";
+  context.fillRect(30, 24, 82, 14);
+  context.fillStyle = "#dbe5ff";
+  context.fillRect(169, 40, 31, 7);
+
+  const texture = new CanvasTexture(canvas, EquirectangularReflectionMapping);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
 function makeNumberAtlas() {
   if (typeof document === "undefined") return undefined;
 
@@ -150,7 +213,7 @@ function makeNumberAtlas() {
   const canvasContext = canvas.getContext("2d");
   if (!canvasContext) return undefined;
 
-  canvasContext.font = "700 50px Arial, sans-serif";
+  canvasContext.font = "700 54px Arial, sans-serif";
   canvasContext.textAlign = "center";
   canvasContext.textBaseline = "middle";
   canvasContext.fillStyle = ivory;
@@ -206,11 +269,11 @@ function addPocket(
 }
 
 export function createWheel(scene: Scene) {
-  const room = new HemisphereLight("#fff4dd", "#625851", 1.5);
+  const room = new HemisphereLight("#e8edff", "#5e4951", 1.25);
   scene.add(room);
 
-  const key = new DirectionalLight("#fff0dc", 2.75);
-  key.position.set(-3.5, 9, 6);
+  const key = new DirectionalLight("#ffeadb", 2.2);
+  key.position.set(-5.5, 9, 5);
   key.castShadow = true;
   key.shadow.mapSize.set(1024, 1024);
   key.shadow.camera.left = key.shadow.camera.bottom = -5.5;
@@ -218,11 +281,20 @@ export function createWheel(scene: Scene) {
   key.shadow.camera.far = 25;
   key.shadow.normalBias = 0.017;
   key.shadow.bias = -0.00015;
+  key.shadow.intensity = 0.62;
   scene.add(key);
 
-  const fill = new DirectionalLight("#cef0e1", 1.1);
-  fill.position.set(4, 6, -7);
-  scene.add(fill);
+  const fill = new DirectionalLight("#d1deff", 1.5);
+  fill.position.set(3, 5, -8);
+  const rim = new DirectionalLight("#fff5eb", 0.65);
+  rim.position.set(5, 1.5, 6);
+  scene.add(fill, rim);
+
+  const floor = new Mesh(new PlaneGeometry(24, 24), new ShadowMaterial({ opacity: 0.38 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.02;
+  floor.receiveShadow = true;
+  scene.add(floor);
 
   const stationary = new Group();
   scene.add(stationary);
@@ -230,15 +302,37 @@ export function createWheel(scene: Scene) {
   rotor.name = "roulette-rotor";
   scene.add(rotor);
 
-  const wood = material("#4d2520", 0.36);
-  const woodEdge = material("#713b2a", 0.45);
-  const brassMetal = material(brass, 0.3, 0.36);
-  const bronze = material("#755939", 0.39, 0.28);
-  const paleBrass = material("#dfb77a", 0.34, 0.28);
-  const bank = material("#765335", 0.43, 0.22);
-  const darkBand = material("#191e1a", 0.6, 0.07);
+  const reflection = makeStudioReflection() ?? null;
+  const grain = makeWoodGrain();
+  const wood = new MeshPhysicalMaterial({
+    color: grain ? "#ddd0d7" : "#4b2631",
+    map: grain,
+    roughness: 0.36,
+    clearcoat: 0.75,
+    clearcoatRoughness: 0.35,
+    envMap: reflection,
+    envMapIntensity: 0.75,
+  });
+  const woodEdge = wood.clone();
+  woodEdge.color.multiplyScalar(0.55);
+  const brassMetal = new MeshStandardMaterial({
+    color: "#cda983",
+    roughness: 0.26,
+    metalness: 0.77,
+    envMap: reflection,
+    envMapIntensity: 1.6,
+  });
+  const bronze = brassMetal.clone();
+  bronze.color.set("#91725c");
+  bronze.roughness = 0.39;
+  const paleBrass = brassMetal.clone();
+  paleBrass.color.set("#f3d5af");
+  paleBrass.roughness = 0.33;
+  paleBrass.metalness = 0.53;
+  const bank = material("#343138", 0.34, 0.19);
+  const darkBand = material("#171a1d", 0.55, 0.15);
 
-  addRing(
+  const cabinet = addRing(
     stationary,
     [
       [4.199, 1.488],
@@ -253,6 +347,7 @@ export function createWheel(scene: Scene) {
     ],
     wood,
   );
+  cabinet.castShadow = true;
 
   addRing(
     stationary,
@@ -262,7 +357,7 @@ export function createWheel(scene: Scene) {
       [4.476, 0.237],
       [4.464, 0.214],
     ],
-    woodEdge,
+    bronze,
   );
 
   addRing(
@@ -274,6 +369,17 @@ export function createWheel(scene: Scene) {
       [4.444, 1.251],
     ],
     bronze,
+  );
+
+  addRing(
+    stationary,
+    [
+      [4.43, 0.875],
+      [4.448, 0.84],
+      [4.447, 0.8],
+      [4.432, 0.767],
+    ],
+    woodEdge,
   );
 
   addRing(
@@ -308,7 +414,7 @@ export function createWheel(scene: Scene) {
       [3.212, 0.64],
       [3.225, 0.64],
     ],
-    paleBrass,
+    brassMetal,
   );
 
   const deflector = deflectorGeometry();
@@ -382,7 +488,7 @@ export function createWheel(scene: Scene) {
       [1.689, 0.585],
       [1.731, 0.541],
     ],
-    woodEdge,
+    wood,
   );
 
   addRing(
@@ -391,6 +497,17 @@ export function createWheel(scene: Scene) {
       [1.555, 0.643],
       [1.582, 0.636],
       [1.612, 0.625],
+    ],
+    bronze,
+  );
+
+  addRing(
+    rotor,
+    [
+      [0.502, 0.925],
+      [0.528, 0.923],
+      [0.546, 0.917],
+      [0.571, 0.908],
     ],
     bronze,
   );
@@ -426,15 +543,22 @@ export function createWheel(scene: Scene) {
     finial.castShadow = arm.castShadow = true;
   }
 
-  const ball = addMesh(scene, new SphereGeometry(ballRadius, 32, 20), material(ivory, 0.21));
+  const ballSurface = new MeshPhysicalMaterial({
+    color: ivory,
+    roughness: 0.23,
+    clearcoat: 0.9,
+    emissive: "#fff4de",
+    emissiveIntensity: 0.09,
+  });
+  const ball = addMesh(scene, new SphereGeometry(ballRadius, 32, 20), ballSurface);
   ball.name = "roulette-ball";
   ball.castShadow = true;
 
   function highlightPocket(index: number) {
     const tile = tiles[index];
     const highlight = tile.material.clone();
-    highlight.emissive = new Color("#c67c39");
-    highlight.emissiveIntensity = 0.46;
+    highlight.emissive = new Color("#e8a865");
+    highlight.emissiveIntensity = 0.6;
     tile.material = highlight;
   }
 

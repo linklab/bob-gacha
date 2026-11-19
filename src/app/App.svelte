@@ -30,7 +30,7 @@
   type Phase = "loading" | "ready" | "running" | "finished" | "failed" | "unavailable";
 
   let draft = $state(initialDraft);
-  let mode: DrawMode = $state("roulette");
+  let mode = $state<DrawMode>("roulette");
   let phase = $state<Phase>("loading");
   let result: DrawResult | undefined = $state();
   let assignments: DrawScene["assignments"] = $state.raw();
@@ -50,6 +50,9 @@
     : "",
   );
   const settings = $derived(modes[mode]);
+  const showRaceMap = $derived(
+    mode === "race" && phase !== "loading" && phase !== "unavailable" && (!validation || !!result),
+  );
   const isRunning = $derived(phase === "running");
   const action = $derived(
     isRunning ? "중지"
@@ -196,13 +199,13 @@
     </nav>
   </header>
 
-  <main>
-    <div class="mode-heading">
-      <h2>{settings.title}</h2>
-      <p>{settings.description}</p>
-    </div>
-    <div class="draw-layout">
-      <section class="draw-stage" id="draw-stage" aria-label={settings.title}>
+  <main class="studio">
+    <section class="draw-stage" id="draw-stage" aria-labelledby="mode-title">
+      <div class="stage-visual">
+        <div class="mode-heading">
+          <h2 id="mode-title">{settings.title}</h2>
+          <p>{settings.description}</p>
+        </div>
         <div class="scene-view">
           <div class="scene-canvas" bind:this={viewport}></div>
           {#if phase === "loading"}
@@ -245,14 +248,18 @@
             {action}
           </button>
         </div>
-      </section>
+      </div>
+    </section>
 
-      <aside class="control-panel" aria-label="뽑기 설정">
+    <aside class="control-panel" class:with-mapping={showRaceMap || !!assignments} aria-label="뽑기 설정">
+      <div class="editor-heading">
         <div class="field-heading">
           <label for="candidates">후보</label>
           <span class="candidate-count">{names.length}개</span>
         </div>
         <p id="candidate-hint">한 줄에 하나씩, 2–{maxCandidates}개</p>
+      </div>
+      <div class="editor-field">
         <textarea
           id="candidates"
           spellcheck="false"
@@ -268,32 +275,32 @@
             <p id="candidate-error" class="candidate-error">{validation}</p>
           {/if}
         </div>
-        {#if mode === "race" && phase !== "loading" && phase !== "unavailable" && (!validation || result)}
-          <details class="round-details" open>
-            <summary>{result ? "직전 경주 구슬 번호" : "구슬 번호"}</summary>
-            <ul class="entrants">
-              {#each sceneCandidates as candidate (candidate.id)}
-                <li>
-                  <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
-                  <span class="entrant-name">{candidate.name}</span>
-                </li>
-              {/each}
-            </ul>
-          </details>
-        {:else if assignments}
-          <details class="round-details pocket-assignments" open>
-            <summary>{result ? "직전 룰렛 포켓 배정" : "포켓 배정"}</summary>
-            <dl>
-              {#each sceneCandidates as candidate (candidate.id)}
-                <div>
-                  <dt>{candidate.name}</dt>
-                  <dd>{assignments.get(candidate.id)?.join(", ")}</dd>
-                </div>
-              {/each}
-            </dl>
-          </details>
-        {/if}
-      </aside>
-    </div>
+      </div>
+      {#if showRaceMap}
+        <details class="round-details" open>
+          <summary>{result ? "직전 경주 구슬 번호" : "구슬 번호"}</summary>
+          <ul class="entrants">
+            {#each sceneCandidates as candidate (candidate.id)}
+              <li>
+                <span class="entrant-number" style:background={candidate.color}>{candidate.id}</span>
+                <span class="entrant-name">{candidate.name}</span>
+              </li>
+            {/each}
+          </ul>
+        </details>
+      {:else if assignments}
+        <details class="round-details pocket-assignments" open>
+          <summary>{result ? "직전 룰렛 포켓 배정" : "포켓 배정"}</summary>
+          <dl>
+            {#each sceneCandidates as candidate (candidate.id)}
+              <div>
+                <dt>{candidate.name}</dt>
+                <dd>{assignments.get(candidate.id)?.join(", ")}</dd>
+              </div>
+            {/each}
+          </dl>
+        </details>
+      {/if}
+    </aside>
   </main>
 </div>

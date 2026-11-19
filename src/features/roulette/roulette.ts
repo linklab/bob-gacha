@@ -134,9 +134,9 @@ export const createRouletteScene: CreateDrawScene = ({
   const previousPosition = new Vector3();
 
   function resize(aspect: number) {
-    const scale = Math.max(1, 1.14 / aspect);
-    camera.position.set(0, 13.05 * scale, 8.05 * scale);
-    camera.lookAt(0, 0.73, 0.6);
+    const scale = Math.max(1, 1.2 / aspect);
+    camera.position.set(-2.15 * scale, 11.25 * scale, 9.3 * scale);
+    camera.lookAt(0, 0.42, 0.68);
   }
 
   resize(camera.aspect);
