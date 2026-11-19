@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { flushSync, onMount } from "svelte";
+  import { onMount } from "svelte";
   import type { Vector2 } from "three";
 
   import rewardTiming from "../lib/audio/draw-win-timing.json";
   import type { Candidate, DrawMode, DrawResult, DrawScene } from "../lib/draw";
   import type { DrawPlayer } from "../lib/draw-player";
+  import CandidateEditor from "./CandidateEditor.svelte";
   import DrawCelebration from "./DrawCelebration.svelte";
   import "./app.css";
 
@@ -23,7 +24,6 @@
     "#f6b856", "#80dca4", "#88c8ff", "#fc7d70", "#bea3fa", "#f098bd",
     "#a8d750", "#52d4cd", "#899eff", "#e68e59", "#e6dd85", "#c2d1d6",
   ];
-  const maxCandidates = colors.length;
   const previewLimit = 3;
   const swipeRadius = 1.6;
   const fullSpeed = 4.8;
@@ -45,7 +45,6 @@
   }
 
   let candidateNames = $state.raw(["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"]);
-  let draft = $state("");
   let mode = $state<DrawMode>("roulette");
   let phase = $state<Phase>("loading");
   let result = $state<DrawResult>();
@@ -56,7 +55,7 @@
   let draggingWheel = $state(false);
   let soundEnabled = $state(true);
   let viewport = $state<HTMLDivElement>();
-  let editor = $state<HTMLDialogElement>();
+  let editor = $state<ReturnType<typeof CandidateEditor>>();
 
   let player: DrawPlayer | undefined;
   let loadVersion = 0;
@@ -64,13 +63,6 @@
 
   const candidates: Candidate[] = $derived(
     candidateNames.map((name, index) => ({ id: index + 1, name, color: colors[index] })),
-  );
-  const pendingNames = $derived(draft.split(/\r?\n/).map((name) => name.trim()).filter(Boolean));
-  const validation = $derived(
-    pendingNames.length < 2 ? "후보를 두 개 이상 입력하세요."
-    : pendingNames.length > maxCandidates ? `후보는 최대 ${maxCandidates}개까지 입력할 수 있습니다.`
-    : new Set(pendingNames).size !== pendingNames.length ? "같은 이름의 후보가 있습니다."
-    : "",
   );
   const settings = $derived(modes[mode]);
   const candidatePreview = $derived(candidateNames.slice(0, previewLimit).join(" · "));
@@ -285,21 +277,13 @@
   function openEditor() {
     if (isRunning || !editor) return;
     cancelWheelDrag();
-    flushSync(() => {
-      draft = candidateNames.join("\n");
-    });
-    editor.showModal();
+    editor.open();
   }
 
-  function applyCandidates(event: SubmitEvent) {
-    event.preventDefault();
-    if (validation || isRunning) return;
-
-    if (pendingNames.join("\n") !== candidateNames.join("\n")) {
-      candidateNames = pendingNames;
-      resetRound();
-    }
-    editor?.close();
+  function applyCandidates(names: string[]) {
+    if (names.join("\n") === candidateNames.join("\n")) return;
+    candidateNames = names;
+    resetRound();
   }
 
   onMount(() => {
@@ -372,6 +356,16 @@
 
     <div class="draw-controls">
       <div class="candidate-line">
+        <button
+          class="button-secondary"
+          type="button"
+          aria-haspopup={raceRunning ? undefined : "dialog"}
+          aria-controls={raceRunning ? undefined : "candidate-editor"}
+          aria-disabled={raceRunning && !spinnerAvailable ? "true" : undefined}
+          disabled={isRunning && !raceRunning}
+          onclick={handleCandidateControl}
+        >{raceRunning ? (spinnerUsed ? "회전 바 뒤집음" : "회전 바 뒤집기")
+          : `후보 ${candidateNames.length}개 · 편집`}</button>
         {#if mode === "roulette"}
           <p class="candidate-summary">
             <span>{candidatePreview}</span>{#if hiddenCandidates > 0}
@@ -379,15 +373,6 @@
             {/if}
           </p>
         {/if}
-        <button
-          class="button-secondary"
-          type="button"
-          aria-label={raceRunning ? undefined : "후보 편집"}
-          aria-disabled={raceRunning && !spinnerAvailable ? "true" : undefined}
-          disabled={isRunning && !raceRunning}
-          onclick={handleCandidateControl}
-        >{raceRunning ? (spinnerUsed ? "회전 바 뒤집음" : "회전 바 뒤집기")
-          : mode === "race" ? "후보 편집" : "편집"}</button>
       </div>
 
       <div class="round-feedback" aria-live="polite" aria-atomic="true">
@@ -440,30 +425,4 @@
   </main>
 </div>
 
-<dialog class="candidate-editor" aria-labelledby="editor-title" bind:this={editor}>
-  <form onsubmit={applyCandidates}>
-    <header class="editor-heading">
-      <h2 id="editor-title">후보 편집</h2>
-      <p id="candidate-hint">한 줄에 하나씩, 2–{maxCandidates}개를 입력하세요.</p>
-    </header>
-    <textarea
-      id="candidate-draft"
-      aria-label="후보 이름"
-      rows="6"
-      spellcheck="false"
-      autocapitalize="off"
-      aria-describedby={validation ? "candidate-hint candidate-error" : "candidate-hint"}
-      aria-invalid={!!validation}
-      bind:value={draft}
-    ></textarea>
-    <div aria-live="polite">
-      {#if validation}
-        <p id="candidate-error" class="candidate-error">{validation}</p>
-      {/if}
-    </div>
-    <div class="editor-actions">
-      <button class="button-secondary" type="button" onclick={() => editor?.close()}>취소</button>
-      <button class="button-primary" type="submit" disabled={!!validation}>적용</button>
-    </div>
-  </form>
-</dialog>
+<CandidateEditor bind:this={editor} names={candidateNames} {colors} onApply={applyCandidates} />

@@ -23,6 +23,12 @@ async function dropWheelCapture(wheel: Locator) {
   });
 }
 
+async function replaceCandidates(dialog: Locator, text: string) {
+  await dialog.getByRole("button", { name: "여러 줄 붙여넣기", exact: true }).click();
+  await dialog.getByRole("textbox", { name: "붙여넣을 후보", exact: true }).fill(text);
+  await dialog.getByRole("button", { name: "목록 교체", exact: true }).click();
+}
+
 test("runs both 3D draws with the entered candidates", async ({ page }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => {
@@ -42,14 +48,13 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
   await expect(page.getByRole("heading")).toHaveText("Bob Gacha");
   const summary = page.locator(".candidate-summary");
   await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
-  const edit = page.getByRole("button", { name: "후보 편집", exact: true });
+  const edit = page.getByRole("button", { name: /^후보 \d+개 · 편집$/ });
   const dialog = page.getByRole("dialog", { name: "후보 편집", exact: true });
-  const draft = dialog.getByRole("textbox", { name: "후보 이름", exact: true });
-  const apply = dialog.getByRole("button", { name: "적용", exact: true });
+  const apply = dialog.getByRole("button", { name: /^후보 \d+개 적용$/ });
   const assignments = page.locator("details");
   const entrantList = page.getByRole("list", { name: "구슬 번호와 후보" });
   await edit.click();
-  await draft.fill(names.join("\n"));
+  await replaceCandidates(dialog, names.join("\n"));
   await apply.click();
   await expect(summary).toHaveText("김밥 · 비빔밥 · 우동 외 1개");
   await expect(assignments).toHaveCount(0);
@@ -115,12 +120,12 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
 
   const finishedResult = (await result.innerText()).trim();
   await edit.click();
-  await draft.fill("김밥");
+  await dialog.getByRole("textbox", { name: "후보 1 이름", exact: true }).fill("초밥");
   await page.keyboard.press("Escape");
   await expect(result).toHaveText(finishedResult);
 
   await edit.click();
-  await draft.fill(`  ${names.join("\n\n")}\n`);
+  await replaceCandidates(dialog, `  ${names.join("\n\n")}\n`);
   await apply.click();
   await expect(result).toHaveText(finishedResult);
 
@@ -128,7 +133,7 @@ test("runs both 3D draws with the entered candidates", async ({ page }) => {
     (name) => `${name} ${"아주긴후보이름".repeat(20)}`,
   );
   await edit.click();
-  await draft.fill(raceNames.join("\n"));
+  await replaceCandidates(dialog, raceNames.join("\n"));
   await apply.click();
   await expect(summary).toHaveText(`${raceNames.slice(0, 3).join(" · ")} 외 1개`);
   await expect(start).toBeEnabled();
@@ -395,56 +400,72 @@ test("keeps the draw running when the sound device fails", async ({ page }) => {
   await expect(start).toBeEnabled();
 });
 
-test("validates candidate drafts and discards unconfirmed changes", async ({ page }) => {
+test("edits candidate rows and reviews a pasted list before applying", async ({ page }) => {
   await page.goto("./");
-  const initialNames = ["김밥", "비빔밥", "돈가스", "쌀국수", "우동", "카레"];
   const summary = page.locator(".candidate-summary");
-  const edit = page.getByRole("button", { name: "후보 편집", exact: true });
+  const edit = page.getByRole("button", { name: /^후보 \d+개 · 편집$/ });
   const dialog = page.getByRole("dialog", { name: "후보 편집", exact: true });
-  const draft = dialog.getByRole("textbox", { name: "후보 이름", exact: true });
-  const apply = dialog.getByRole("button", { name: "적용", exact: true });
-  await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
-  await page.locator("#candidate-draft").evaluate((element) => {
-    if (!(element instanceof HTMLTextAreaElement)) throw new Error("Expected a textarea");
-    element.addEventListener("focus", () => {
-      element.dataset.valueOnFocus = element.value;
-      element.dataset.invalidOnFocus = element.getAttribute("aria-invalid") ?? "";
-    });
-  });
+  const name = (index: number) =>
+    dialog.getByRole("textbox", { name: `후보 ${index} 이름`, exact: true });
+  const apply = dialog.getByRole("button", { name: /^후보 \d+개 적용$/ });
+  const bulk = dialog.getByRole("button", { name: "여러 줄 붙여넣기", exact: true });
+  const paste = dialog.getByRole("textbox", { name: "붙여넣을 후보", exact: true });
+  const append = dialog.getByRole("button", { name: "목록에 추가", exact: true });
+  const replace = dialog.getByRole("button", { name: "목록 교체", exact: true });
+
   await edit.click();
   await expect(dialog.and(page.locator("dialog:modal"))).toBeVisible();
-  await expect(draft).toHaveValue(initialNames.join("\n"));
-  await expect(draft).toHaveAttribute("data-value-on-focus", initialNames.join("\n"));
-  await expect(draft).toHaveAttribute("data-invalid-on-focus", "false");
-
-  await draft.fill("김밥");
+  await expect(dialog.getByRole("heading")).toBeFocused();
+  await expect(name(1)).toHaveValue("김밥");
+  await name(2).fill(" 김밥 ");
+  await expect(name(1)).toHaveAttribute("aria-invalid", "true");
+  await expect(name(2)).toHaveAttribute("aria-invalid", "true");
   await expect(apply).toBeDisabled();
-  await draft.fill("김밥\n 김밥 ");
+  await name(2).fill("샐러드");
+  await dialog.getByRole("button", { name: "후보 3 삭제", exact: true }).click();
+  await expect(name(3)).toHaveValue("쌀국수");
+  await dialog.getByRole("button", { name: "후보 추가", exact: true }).click();
+  await expect(name(6)).toBeFocused();
   await expect(apply).toBeDisabled();
-  await expect(dialog.getByText("같은 이름의 후보가 있습니다.", { exact: true })).toBeVisible();
-  const boundaryNames = Array.from({ length: 13 }, (_, index) => `후보 ${index + 1}`);
-  await draft.fill(boundaryNames.join("\n"));
-  await expect(apply).toBeDisabled();
-  await draft.fill(boundaryNames.slice(0, 12).join("\n"));
+  await name(6).fill("초밥");
   await expect(apply).toBeEnabled();
   await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
-  await draft.fill("김밥");
   await dialog.getByRole("button", { name: "취소", exact: true }).click();
   await expect(dialog).toBeHidden();
   await expect(edit).toBeFocused();
-  await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
 
   await edit.click();
-  await expect(draft).toHaveValue(initialNames.join("\n"));
-  await expect(draft).toHaveAttribute("data-value-on-focus", initialNames.join("\n"));
-  await expect(draft).toHaveAttribute("data-invalid-on-focus", "false");
-  await draft.fill("샐러드\n라멘");
-  await expect(apply).toBeEnabled();
+  await expect(name(2)).toHaveValue("비빔밥");
+  await bulk.click();
+  await expect(paste).toBeFocused();
+  await paste.fill(Array.from({ length: 13 }, (_, index) => `후보 ${index + 1}`).join("\n"));
+  await expect(append).toBeDisabled();
+  await expect(replace).toBeDisabled();
+  await paste.fill(Array.from({ length: 12 }, (_, index) => `후보 ${index + 1}`).join("\n"));
+  await expect(append).toBeDisabled();
+  await expect(replace).toBeEnabled();
+  await replace.click();
+  await expect(name(12)).toHaveValue("후보 12");
+  await expect(dialog.getByRole("button", { name: "후보 추가", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(edit).toBeFocused();
   await expect(summary).toHaveText("김밥 · 비빔밥 · 돈가스 외 3개");
-  await expect(page.getByRole("button", { name: "룰렛 돌리기", exact: true })).toBeEnabled();
+
+  await edit.click();
+  await replaceCandidates(dialog, "타코");
+  await expect(name(1)).toHaveValue("타코");
+  await expect(apply).toBeDisabled();
+  await bulk.click();
+  await paste.fill(" 샐러드 \n\n라멘\n");
+  await expect(dialog.getByText("붙여넣을 후보 2개", { exact: true })).toBeVisible();
+  await expect(apply).toBeDisabled();
+  await append.click();
+  await expect(name(2)).toHaveValue("샐러드");
+  await expect(name(3)).toHaveValue("라멘");
+  await dialog.getByRole("button", { name: "후보 3개 적용", exact: true }).click();
+  await expect(summary).toHaveText("타코 · 샐러드 · 라멘");
+  await expect(edit).toBeFocused();
 });
 
 test("can reload the scene after a WebGL context loss", async ({ page }) => {
@@ -470,10 +491,27 @@ test("keeps mobile controls in keyboard order and protects a running draw", asyn
   await page.goto("./");
 
   const action = page.getByRole("button", { name: "룰렛 돌리기" });
-  const candidates = page.getByRole("button", { name: "후보 편집", exact: true });
+  const candidates = page.getByRole("button", { name: /^후보 \d+개 · 편집$/ });
   const race = page.getByRole("button", { name: "구슬 경주", exact: true });
   await expect(action).toBeEnabled();
   await expect(action).toBeInViewport();
+  await candidates.click();
+  const sheet = page.getByRole("dialog", { name: "후보 편집", exact: true });
+  const sheetBounds = await sheet.boundingBox();
+  expect(sheetBounds).not.toBeNull();
+  expect(sheetBounds!.width).toBe(390);
+  expect(sheetBounds!.y + sheetBounds!.height).toBeCloseTo(664, 0);
+  await expect(sheet.getByRole("heading")).toBeFocused();
+  await replaceCandidates(
+    sheet,
+    Array.from({ length: 12 }, (_, index) => `후보 ${index + 1}`).join("\n"),
+  );
+  const apply = sheet.getByRole("button", { name: "후보 12개 적용", exact: true });
+  await expect(apply).toBeInViewport();
+  await sheet.getByRole("textbox", { name: "후보 12 이름", exact: true }).focus();
+  await expect(apply).toBeInViewport();
+  await page.keyboard.press("Escape");
+  await expect(candidates).toBeFocused();
   const box = await action.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.y + box!.height).toBeLessThanOrEqual(664);
