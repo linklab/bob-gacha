@@ -23,6 +23,8 @@ import {
 
 const launchRadius = 4.01;
 const launchHeight = 1.113;
+const railDrag = 0.225;
+const railExitSpeed = 1.26;
 const up = new Vector3(0, 1, 0);
 
 function shuffledCandidates(candidates: readonly Candidate[], random: () => number) {
@@ -85,7 +87,7 @@ export const createRouletteScene: CreateDrawScene = ({
     if (!descriptor) throw new Error("룰렛 구분 칸을 만들 수 없습니다.");
     rotation.setFromAxisAngle(up, -(i + 0.5) * pocketAngle);
     world.createCollider(
-      descriptor.setRotation(rotation).setFriction(0.34).setRestitution(0.36),
+      descriptor.setRotation(rotation).setFriction(0.24).setRestitution(0.57),
       axle,
     );
   }
@@ -101,8 +103,8 @@ export const createRouletteScene: CreateDrawScene = ({
       descriptor
         .setTranslation(deflectorRadius * Math.cos(angle), 0, deflectorRadius * Math.sin(angle))
         .setRotation(rotation)
-        .setFriction(0.28)
-        .setRestitution(0.1),
+        .setFriction(0.16)
+        .setRestitution(0.56),
     );
   }
 
@@ -117,12 +119,12 @@ export const createRouletteScene: CreateDrawScene = ({
       .setEnabled(false)
       .setCanSleep(false)
       .setCcdEnabled(true)
-      .setLinearDamping(0.09)
+      .setLinearDamping(0.13)
       .setAngularDamping(0.065)
       .setAdditionalSolverIterations(4),
   );
   const ballCollider = world.createCollider(
-    rapier.ColliderDesc.ball(ballRadius).setFriction(0.43).setRestitution(0.24),
+    rapier.ColliderDesc.ball(ballRadius).setFriction(0.34).setRestitution(0.41),
     body,
   );
 
@@ -131,18 +133,55 @@ export const createRouletteScene: CreateDrawScene = ({
   let active = false;
   let rotorAngle = 0;
   let rotorSpeed = 0;
+  let onRail = false;
+  let railAngle = idleAngle;
+  let railSpeed = 0;
   let onRotor = false;
   let settlingPocket = -1;
   let settledTime = 0;
+  let railView = 0;
   let cameraClose = 0;
   let aspect = camera.aspect;
 
   const localPosition = new Vector3();
   const previousPosition = new Vector3();
   const focus = new Vector3();
+  const railNormal = new Vector3();
+  const roll = new Quaternion();
+  const ballRotation = new Quaternion();
 
   function setWheelAngle() {
     axle.setRotation(rotation.setFromAxisAngle(up, rotorAngle), true);
+  }
+
+  function setBallVelocity(angle: number, angularSpeed: number, inward = 0) {
+    const x = Math.cos(angle);
+    const z = Math.sin(angle);
+    const speed = angularSpeed * launchRadius;
+    body.setLinvel({ x: -z * speed - x * inward, y: 0, z: x * speed - z * inward }, true);
+    body.setAngvel({ x: (x * speed) / ballRadius, y: 0, z: (z * speed) / ballRadius }, true);
+  }
+
+  function stepRail(dt: number) {
+    if (Math.abs(railSpeed) <= railExitSpeed) {
+      onRail = false;
+      body.setBodyType(rapier.RigidBodyType.Dynamic, true);
+      setBallVelocity(railAngle, railSpeed, 1.35);
+      return;
+    }
+
+    // The outer guide constrains the ball to a circle. At release its pose and tangential
+    // momentum carry into the free Rapier body, where the deflectors and pockets take over.
+    const nextSpeed = railSpeed * Math.exp(-railDrag * dt);
+    const turn = (railSpeed - nextSpeed) / railDrag;
+    railSpeed = nextSpeed;
+    railAngle += turn;
+    const x = Math.cos(railAngle);
+    const z = Math.sin(railAngle);
+    body.setNextKinematicTranslation({ x: launchRadius * x, y: launchHeight, z: launchRadius * z });
+    railNormal.set(x, 0, z);
+    ballRotation.premultiply(roll.setFromAxisAngle(railNormal, (turn * launchRadius) / ballRadius));
+    body.setNextKinematicRotation(ballRotation);
   }
 
   return {
@@ -167,29 +206,34 @@ export const createRouletteScene: CreateDrawScene = ({
 
       if (spin === undefined) {
         rotorAngle = random() * fullTurn;
-        rotorSpeed = MathUtils.lerp(1.05, 1.52, random());
+        rotorSpeed = MathUtils.lerp(1.82, 2.35, random());
       } else {
         rotorSpeed =
-          (Math.sign(spin) || 1) * MathUtils.lerp(0.68, 1.72, Math.min(Math.abs(spin), 1));
+          (Math.sign(spin) || 1) * MathUtils.lerp(1.55, 3.12, Math.min(Math.abs(spin), 1));
       }
       setWheelAngle();
 
-      const angle = spin === undefined ? random() * fullTurn : idleAngle;
-      const speed = MathUtils.lerp(8.6, 9.2, random());
-      const facingX = Math.cos(angle);
-      const facingZ = Math.sin(angle);
+      railAngle = spin === undefined ? random() * fullTurn : idleAngle;
+      const power = spin === undefined ? 0.5 : Math.min(Math.abs(spin), 1);
+      // Positive Rapier yaw turns x toward -z; positive railAngle turns toward +z.
+      railSpeed = Math.sign(rotorSpeed) * (MathUtils.lerp(7.25, 8.9, power) + random() * 0.45);
+      onRail = true;
+      ballRotation.identity();
+      body.setBodyType(rapier.RigidBodyType.KinematicPositionBased, true);
       body.setEnabled(true);
       body.setTranslation(
-        { x: launchRadius * facingX, y: launchHeight, z: launchRadius * facingZ },
+        {
+          x: launchRadius * Math.cos(railAngle),
+          y: launchHeight,
+          z: launchRadius * Math.sin(railAngle),
+        },
         true,
       );
-      body.setLinvel({ x: -facingZ * speed, y: 0, z: facingX * speed }, true);
-      body.setAngvel(
-        { x: (facingX * speed) / ballRadius, y: 0, z: (facingZ * speed) / ballRadius },
-        true,
-      );
+      body.setRotation(ballRotation, true);
+      setBallVelocity(railAngle, railSpeed);
 
       onRotor = false;
+      railView = 0;
       cameraClose = 0;
       focus.set(0, 0, 0);
       settlingPocket = -1;
@@ -204,9 +248,10 @@ export const createRouletteScene: CreateDrawScene = ({
 
       // Keep the quaternion continuous across full turns so the axle does not jolt the ball.
       rotorAngle += rotorSpeed * dt;
-      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.32 : 0.035;
+      const brake = settledTime > 0.18 ? 3.4 : onRotor ? 0.44 : 0.055;
       rotorSpeed *= Math.exp(-brake * dt);
       axle.setNextKinematicRotation(rotation.setFromAxisAngle(up, rotorAngle));
+      if (onRail) stepRail(dt);
     },
     afterStep(dt) {
       if (!active) return undefined;
@@ -221,8 +266,9 @@ export const createRouletteScene: CreateDrawScene = ({
       const radius = Math.hypot(x, z);
       onRotor ||= radius < 3.12;
       const runningDownBank = 1 - MathUtils.smoothstep(radius, 3.12, 3.98);
-      const viewTarget = onRotor ? (settledTime > 0 ? 1 : 0.72) : runningDownBank * 0.64;
-      cameraClose = MathUtils.damp(cameraClose, viewTarget, 2.8, dt);
+      const viewTarget = onRotor ? (settledTime > 0 ? 1 : 0.8) : runningDownBank * 0.65;
+      railView = MathUtils.damp(railView, onRail ? 1 : 0, 5.4, dt);
+      cameraClose = MathUtils.damp(cameraClose, viewTarget, 3.6, dt);
       const focusBlend = 1 - Math.exp(-3.2 * dt);
       focus.x += (position.x * cameraClose * 0.56 - focus.x) * focusBlend;
       focus.z += (position.z * cameraClose * 0.56 - focus.z) * focusBlend;
@@ -265,10 +311,12 @@ export const createRouletteScene: CreateDrawScene = ({
       ball.quaternion.copy(body.rotation());
       rotor.quaternion.copy(axle.rotation());
       const distance = Math.max(1, 1.06 / aspect) * MathUtils.lerp(1, 0.59, cameraClose);
+      const overviewHeight = MathUtils.lerp(10.55, 13.7, railView);
+      const overviewDepth = MathUtils.lerp(8.8, 4.2, railView);
       camera.position.set(
         focus.x - 2.15 * distance,
-        0.42 + MathUtils.lerp(10.55, 12.1, cameraClose) * distance,
-        focus.z + 0.48 + MathUtils.lerp(8.8, 6.1, cameraClose) * distance,
+        0.42 + MathUtils.lerp(overviewHeight, 12.1, cameraClose) * distance,
+        focus.z + 0.48 + MathUtils.lerp(overviewDepth, 6.1, cameraClose) * distance,
       );
       camera.lookAt(focus.x, 0.42, focus.z + 0.48);
     },

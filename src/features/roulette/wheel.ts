@@ -131,9 +131,13 @@ function ridgeGeometry(
 }
 
 export const dividerGeometry = () =>
-  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.128);
-export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.19, 0.04);
-export const deflectorAngles = Array.from({ length: 8 }, (_, i) => (fullTurn * (i + 0.5)) / 8);
+  ridgeGeometry(pocketInner, pocketOuter, pocketFloor, pocketFloor + pocketRise, 0.053, 0.158);
+export const deflectorGeometry = () => ridgeGeometry(-0.15, 0.15, 0.738, 0.894, 0.24, 0.11);
+const deflectorCount = 12;
+export const deflectorAngles = Array.from(
+  { length: deflectorCount },
+  (_, i) => (fullTurn * (i + 0.5)) / deflectorCount,
+);
 export const deflectorRadius = 3.58;
 
 function material(color: string, roughness: number, metalness = 0) {

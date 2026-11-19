@@ -1,7 +1,8 @@
 import RAPIER from "@dimforge/rapier3d-compat";
-import { PerspectiveCamera, Scene, Vector3 } from "three";
+import { PerspectiveCamera, Quaternion, Scene, Vector3 } from "three";
 import { beforeAll, describe, expect, it } from "vitest";
 import { createRouletteScene } from "../../src/features/roulette/roulette";
+import { fullTurn, pocketAngle, pocketInner, pocketOuter } from "../../src/features/roulette/wheel";
 import type { Candidate, DrawResult } from "../../src/lib/draw";
 
 const step = 1 / 120;
@@ -97,7 +98,7 @@ describe("룰렛", () => {
     expect(result.pocket).toBeGreaterThanOrEqual(0);
     expect(result.pocket).toBeLessThanOrEqual(36);
     expect(duration).toBeGreaterThan(11);
-    expect(duration).toBeLessThan(19);
+    expect(duration).toBeLessThan(20);
   });
 
   it("드래그를 놓은 각도에서 손을 뗀 방향과 속도로 실제 휠을 돌린다", () => {
@@ -140,6 +141,131 @@ describe("룰렛", () => {
     expect(gentle).toBeGreaterThan(0);
     expect(motion(1)).toBeGreaterThan(gentle * 1.2);
   });
+
+  it.each([
+    { spin: -1, aspect: 0.78, seed: 1957 },
+    { spin: 1, aspect: 1.85, seed: 31001 },
+  ])(
+    "드래그 $spin 방향의 반대로 공을 발사해 바깥을 네 바퀴 이상 돈 뒤 포켓에서 튕긴다",
+    ({ spin, aspect, seed }) => {
+      const scene = new Scene();
+      const camera = new PerspectiveCamera(35, aspect, 0.1, 100);
+      const draw = createRouletteScene({
+        rapier: RAPIER,
+        scene,
+        camera,
+        candidates,
+        random: seededRandom(seed),
+      });
+      draw.world.timestep = step;
+
+      try {
+        draw.turnWheel?.(0.63 * spin);
+        draw.start(spin);
+        const bodies = draw.world.bodies.getAll();
+        const ball = bodies.find(
+          (body) =>
+            body.numColliders() === 1 && body.collider(0).shapeType() === RAPIER.ShapeType.Ball,
+        );
+        const axle = bodies.find((body) => body !== ball && body.isKinematic());
+        if (!ball || !axle) throw new Error("공과 회전축이 필요합니다.");
+
+        const ballCollider = ball.collider(0);
+        const start = ball.translation();
+        let previousAngle = Math.atan2(-start.z, start.x);
+        let previousHeight = start.y;
+        let previousVerticalSpeed = 0;
+        let outerRotation = 0;
+        let leftOuterRail = false;
+        let wheelSpeed = 0;
+        let launchSpeed = 0;
+        const deflector = {
+          frame: -Infinity,
+          riseStart: undefined as number | undefined,
+          rebound: 0,
+        };
+        const divider = {
+          frame: -Infinity,
+          riseStart: undefined as number | undefined,
+          rebound: 0,
+        };
+        const obstacles = [deflector, divider];
+        const crossedSectors = new Set<number>();
+        const localBall = new Vector3();
+        const inverseWheel = new Quaternion();
+        let result: DrawResult | undefined;
+
+        for (let frame = 0; frame < 25 / step && !result; frame++) {
+          draw.beforeStep?.(step);
+          draw.world.step();
+          result = draw.afterStep(step);
+          const { x, y, z } = ball.translation();
+          const verticalSpeed = ball.linvel().y;
+          const radius = Math.hypot(x, z);
+          const angle = Math.atan2(-z, x);
+          const change = angle - previousAngle;
+          const turn = Math.atan2(Math.sin(change), Math.cos(change));
+          if (frame === 0) {
+            launchSpeed = turn / step;
+            wheelSpeed = axle.angvel().y;
+          }
+
+          leftOuterRail ||= radius < 3.83;
+          if (!leftOuterRail) {
+            outerRotation += Math.sign(launchSpeed) * turn;
+          } else {
+            draw.world.contactPairsWith(ballCollider, (obstacle) => {
+              if (obstacle.shapeType() !== RAPIER.ShapeType.ConvexPolyhedron) return;
+              let hit = false;
+              draw.world.contactPair(ballCollider, obstacle, (manifold) => {
+                for (let index = 0; index < manifold.numContacts(); index++) {
+                  hit ||= manifold.contactImpulse(index) > 1e-7;
+                }
+              });
+              if (!hit) return;
+              const parent = obstacle.parent();
+              if (!parent) deflector.frame = frame;
+              else if (parent.handle === axle.handle) divider.frame = frame;
+            });
+            for (const impact of obstacles) {
+              if (verticalSpeed <= 0) {
+                impact.riseStart = undefined;
+              } else if (previousVerticalSpeed <= 0 && frame - impact.frame <= 3) {
+                impact.riseStart = previousHeight;
+              }
+              if (impact.riseStart !== undefined) {
+                impact.rebound = Math.max(impact.rebound, y - impact.riseStart);
+              }
+            }
+            if (radius > pocketInner && radius < pocketOuter) {
+              localBall.set(x, y, z).applyQuaternion(inverseWheel.copy(axle.rotation()).invert());
+              const sector = Math.round(Math.atan2(localBall.z, localBall.x) / pocketAngle);
+              crossedSectors.add(sector);
+            }
+          }
+          previousAngle = angle;
+          previousHeight = y;
+          previousVerticalSpeed = verticalSpeed;
+        }
+
+        const rpm = (Math.abs(launchSpeed) * 60) / fullTurn;
+        expect.soft(Math.sign(wheelSpeed)).toBe(spin);
+        expect.soft(Math.sign(launchSpeed)).toBe(-Math.sign(wheelSpeed));
+        expect.soft(rpm).toBeGreaterThanOrEqual(55);
+        expect.soft(rpm).toBeLessThanOrEqual(90);
+        expect.soft(outerRotation / fullTurn).toBeGreaterThanOrEqual(4);
+        expect.soft(deflector.frame).toBeGreaterThanOrEqual(0);
+        expect.soft(divider.frame).toBeGreaterThanOrEqual(0);
+        expect.soft(deflector.rebound).toBeGreaterThan(0.04);
+        expect.soft(divider.rebound).toBeGreaterThan(0.04);
+        expect.soft(crossedSectors.size).toBeGreaterThan(1);
+        expect(result).toBeDefined();
+        expect(draw.assignments?.get(result!.candidate.id)).toContain(result!.pocket);
+      } finally {
+        draw.world.free();
+      }
+    },
+  );
 
   it("같은 발사 조건에서 후보 순서가 달라져도 공은 같은 포켓에 안착한다", () => {
     const first = runDraw(candidates, seededRandom(500)).result;
